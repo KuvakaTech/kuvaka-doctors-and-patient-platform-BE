@@ -148,7 +148,9 @@ SIMPLE_JWT = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Kuvaka Platform API",
-    "DESCRIPTION": "Unified backend serving both the doctor/clinic-facing and patient-facing platforms.",
+    "DESCRIPTION": (
+        "Unified backend serving both the doctor/clinic-facing and patient-facing platforms."
+    ),
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
