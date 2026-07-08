@@ -8,9 +8,8 @@ class BaseModel(models.Model):
     Abstract base for all domain models in both the doctors and patients apps.
 
     Records are never hard-deleted (see `deleted`) and every row is traceable
-    to when it was created/modified, matching the auditability conventions
-    used across the CARE backend (https://github.com/ohcnetwork/care), which
-    is healthcare-grade prior art we're following here.
+    to when it was created/modified, matching auditability conventions
+    expected of a healthcare-grade backend.
     """
 
     id = models.BigAutoField(primary_key=True)

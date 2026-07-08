@@ -1,9 +1,6 @@
 """
 Base settings shared by all environments. Environment-specific settings
 (local, test, deployment) import from this module and override as needed.
-
-Structure loosely follows https://github.com/ohcnetwork/care (config/settings/*)
-since that project is our architectural reference.
 """
 
 from datetime import timedelta

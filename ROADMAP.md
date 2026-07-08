@@ -43,7 +43,7 @@ for in-progress tracking, linking back here.
 - [ ] Diagnoses, symptoms, allergies, chronic conditions, treatment updates, test suggestions
 - [ ] Vitals & trends (BP, HR, temp, SpO2, RR, weight, height, BMI) with visualization
 - [ ] Medication management: `MedicationRequest` generation, editable prescription, stock-aware dosage/generic/alternative suggestions
-- [ ] Questionnaire-based documentation (SOAP / progress / consultation notes) — see CARE's questionnaire engine as reference pattern
+- [ ] Questionnaire-based documentation (SOAP / progress / consultation notes)
 
 ### 8. Prescription Workflow
 - [ ] AI-generated prescription as an editable starting point
@@ -77,8 +77,7 @@ for in-progress tracking, linking back here.
   build these alongside the first real clinical data model, not after.
 - The AI intelligence layer (notetaker, transcription, SOAP generation,
   suggestions) is scoped as its own workstream once the core patient/encounter
-  data model exists to write into — see `care_scribe` in the CARE ecosystem
-  for how a comparable AI layer is kept as an add-on rather than baked into
+  data model exists to write into, kept as an add-on rather than baked into
   core models.
 - Consent management (patient journey) gates "Patient History" (doctor
   journey item 4) — build patient-side grant/revoke before doctor-side reads

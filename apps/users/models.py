@@ -10,9 +10,9 @@ class UserType(models.TextChoices):
     Discriminates which side of the platform an account belongs to.
 
     `PATIENT` accounts are extended by `apps.patients.models.PatientProfile`;
-    every other type is extended by `apps.doctors.models.DoctorProfile`. This
-    mirrors CARE's pattern of one auth model with domain apps owning their
-    own profile/role data, rather than separate user tables per app.
+    every other type is extended by `apps.doctors.models.DoctorProfile`. One
+    auth model with domain apps owning their own profile/role data, rather
+    than separate user tables per app.
     """
 
     DOCTOR = "doctor", "Doctor"

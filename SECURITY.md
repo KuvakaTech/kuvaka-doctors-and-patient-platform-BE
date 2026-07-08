@@ -6,7 +6,7 @@ public GitHub issue for security-sensitive findings.
 
 ## Reporting a Vulnerability
 
-Email the maintainers at **security@kuvaka.io** with:
+Email the maintainers at **opensource@kuvaka.io** with:
 
 - A description of the vulnerability and its potential impact
 - Steps to reproduce, including any proof-of-concept

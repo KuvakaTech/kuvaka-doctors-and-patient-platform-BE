@@ -1,8 +1,7 @@
 # Contributing
 
 Thanks for your interest in contributing! This project is developed in the
-open, in the same spirit as [CARE](https://github.com/ohcnetwork/care), which
-we use as an architectural reference for healthcare-grade Django backends.
+open, with an architecture geared toward healthcare-grade Django backends.
 
 ## Setting up the development environment
 

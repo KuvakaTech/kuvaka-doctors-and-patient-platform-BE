@@ -25,8 +25,8 @@ the app boundaries are drawn so that split stays cheap.
 Anything both sides need (e.g. a shared `Encounter` or `Prescription` record
 a patient views read-only and a doctor edits) should be modeled once — the
 current plan is to introduce a third shared domain app (`apps.clinical` or
-similar, FHIR-resource-style like CARE's `emr` app) once that need is
-concrete, rather than guessing its shape now. See [ROADMAP.md](ROADMAP.md).
+similar, FHIR-resource-style) once that need is concrete, rather than
+guessing its shape now. See [ROADMAP.md](ROADMAP.md).
 
 ## Auth model
 
@@ -37,10 +37,10 @@ One `User` model (`apps.users.models.User`) with a `user_type` discriminator
 - `apps.doctors.models.DoctorProfile`
 - `apps.patients.models.PatientProfile`
 
-This mirrors CARE's split between a slim core `User` and richer per-context
-profile data, and keeps `AUTH_USER_MODEL` swap-free for the life of the
-project (changing it after the first migration is a painful Django
-migration, so it's set correctly from commit one).
+This keeps a slim core `User` separate from richer per-context profile data,
+and keeps `AUTH_USER_MODEL` swap-free for the life of the project (changing
+it after the first migration is a painful Django migration, so it's set
+correctly from commit one).
 
 Doctor-side login is expected to be email/password (+ optional SSO later);
 patient-side login is expected to be phone/OTP-based. Both issue the same
@@ -49,7 +49,7 @@ was used — only on `user_type`.
 
 ## Settings
 
-Environment split follows CARE's pattern:
+Environment split:
 
 - `config/settings/base.py` — shared defaults
 - `config/settings/local.py` — dev overrides (`DJANGO_SETTINGS_MODULE=config.settings.local`)
