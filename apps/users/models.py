@@ -166,6 +166,7 @@ class EmailOTP(BaseModel):
         if matches:
             self.consumed_at = timezone.now()
         self.save(update_fields=["attempts", "consumed_at"])
+        self.refresh_from_db(fields=["attempts"])
         return matches
 
 
