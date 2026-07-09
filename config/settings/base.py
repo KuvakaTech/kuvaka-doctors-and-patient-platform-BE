@@ -60,6 +60,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
     "drf_spectacular",
@@ -76,10 +77,21 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # ------------------------------------------------------------------------------
 AUTH_USER_MODEL = "users.User"
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {
+        "NAME": "apps.users.password_validators.MinimumLengthValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
+    {
+        "NAME": "apps.users.password_validators.PasswordHistoryValidator",
+    },
 ]
 
 # MIDDLEWARE
@@ -159,3 +171,38 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": env("DJANGO_LOG_LEVEL", default="INFO")},
 }
+
+# TRANSACTIONAL EMAIL (Brevo)
+# ------------------------------------------------------------------------------
+# See apps/core/services/email.py. Left blank, sends are logged instead of
+# delivered, so local dev works without a Brevo account.
+BREVO_API_KEY = env("BREVO_API_KEY", default="")
+BREVO_SENDER_EMAIL = env("BREVO_SENDER_EMAIL", default="no-reply@kuvaka.io")
+BREVO_SENDER_NAME = env("BREVO_SENDER_NAME", default="Kuvaka")
+
+# OTP
+# ------------------------------------------------------------------------------
+OTP_LENGTH = env.int("OTP_LENGTH", default=6)
+OTP_EXPIRY_MINUTES = env.int("OTP_EXPIRY_MINUTES", default=10)
+OTP_MAX_ATTEMPTS = env.int("OTP_MAX_ATTEMPTS", default=5)
+
+# ACCOUNT LOCKOUT
+# ------------------------------------------------------------------------------
+# HIPAA § 164.308(a)(5)(ii)(D) addressable.
+# After LOCKOUT_MAX_ATTEMPTS consecutive failures the account is locked for
+# LOCKOUT_DURATION_MINS minutes. Counter resets on successful login.
+LOCKOUT_MAX_ATTEMPTS = env.int("LOCKOUT_MAX_ATTEMPTS", default=5)
+LOCKOUT_DURATION_MINS = env.int("LOCKOUT_DURATION_MINS", default=30)
+
+# PASSWORD POLICY
+# ------------------------------------------------------------------------------
+PASSWORD_MIN_LENGTH = env.int("PASSWORD_MIN_LENGTH", default=12)
+# How many previous passwords to remember and block reuse of.
+PASSWORD_HISTORY_COUNT = env.int("PASSWORD_HISTORY_COUNT", default=5)
+
+# MFA / TOTP
+# ------------------------------------------------------------------------------
+# Short-lived token lifetime (seconds) bridging password-OK → TOTP-verify.
+MFA_TOKEN_EXPIRY_SECONDS = env.int("MFA_TOKEN_EXPIRY_SECONDS", default=180)
+# Issuer name shown in Authenticator apps.
+MFA_ISSUER_NAME = env("MFA_ISSUER_NAME", default="Kuvaka")

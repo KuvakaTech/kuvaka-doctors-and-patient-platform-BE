@@ -7,6 +7,11 @@ exclude = ["*/migrations/*"]
 select = ["E", "F", "I", "UP", "B", "DJ", "C4"]
 ignore = ["DJ001"]
 
+[tool.ruff.lint.per-file-ignores]
+# Inline HTML email template — markup lines naturally exceed the line-length
+# limit; wrapping mid-attribute would hurt readability more than it helps.
+"apps/users/otp_service.py" = ["E501"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["apps", "config"]
 

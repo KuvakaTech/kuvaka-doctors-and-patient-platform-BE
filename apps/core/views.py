@@ -1,6 +1,23 @@
-from rest_framework.permissions import AllowAny
+from rest_framework import status
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.core.models import EmergencyAccess
+from apps.core.services.break_glass import invoke_break_glass, review_break_glass
+from apps.users.models import User, UserType
+
+
+class IsStaffUser(BasePermission):
+    """
+    Grants access only to users with is_staff=True (CLINIC_ADMIN).
+    Tighter than DRF's IsAdminUser — same semantics but named clearly.
+    """
+
+    message = "Break-glass access is restricted to clinic administrators."
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_staff)
 
 
 class HealthCheckView(APIView):
@@ -10,3 +27,151 @@ class HealthCheckView(APIView):
 
     def get(self, request):
         return Response({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Break-glass (emergency access) — HIPAA § 164.312(a)(2)(ii)
+# ---------------------------------------------------------------------------
+
+
+class BreakGlassView(APIView):
+    """
+    Invoke emergency break-glass access to a specific patient record.
+
+    Requires:
+      - Authenticated request with is_staff=True (CLINIC_ADMIN)
+      - patient_id: the external_id (UUID) of the patient to access
+      - justification: free-text reason, stored permanently
+
+    Returns the EmergencyAccess record ID so the caller can reference it
+    in subsequent audit review. The actual patient data is not returned
+    here — this endpoint purely authorises and records the access. The
+    caller is expected to fetch the patient record via the normal patient
+    profile API immediately after.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request):
+        patient_id = request.data.get("patient_id", "")
+        justification = request.data.get("justification", "").strip()
+
+        if not patient_id:
+            return Response(
+                {"detail": "patient_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not justification:
+            return Response(
+                {"detail": "justification is required. Describe why emergency access is needed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(justification) < 20:
+            return Response(
+                {"detail": "justification must be at least 20 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        patient = User.objects.filter(external_id=patient_id, user_type=UserType.PATIENT).first()
+        if patient is None:
+            return Response(
+                {"detail": "Patient not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            event = invoke_break_glass(
+                request,
+                admin_user=request.user,
+                patient_user=patient,
+                justification=justification,
+            )
+        except (PermissionError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
+        return Response(
+            {
+                "detail": "Emergency access granted and recorded.",
+                "emergency_access_id": event.pk,
+                "patient_external_id": str(patient.external_id),
+                "accessed_at": event.accessed_at,
+                "warning": (
+                    "This access has been permanently logged and will be reviewed "
+                    "by a clinic administrator."
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class BreakGlassListView(APIView):
+    """
+    List all break-glass events. Staff-only.
+    Supports ?unreviewed=true to filter to events pending review.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get(self, request):
+        qs = EmergencyAccess.objects.select_related(
+            "accessed_by", "patient", "reviewed_by"
+        ).order_by("-accessed_at")
+
+        if request.query_params.get("unreviewed") == "true":
+            qs = qs.filter(reviewed_at__isnull=True)
+
+        data = [
+            {
+                "id": ev.pk,
+                "accessed_by": ev.accessed_by.email if ev.accessed_by else None,
+                "patient": ev.patient.email if ev.patient else None,
+                "justification": ev.justification,
+                "ip_address": ev.ip_address,
+                "accessed_at": ev.accessed_at,
+                "is_reviewed": ev.is_reviewed,
+                "reviewed_by": ev.reviewed_by.email if ev.reviewed_by else None,
+                "reviewed_at": ev.reviewed_at,
+                "review_notes": ev.review_notes,
+            }
+            for ev in qs
+        ]
+        return Response(data)
+
+
+class BreakGlassReviewView(APIView):
+    """
+    Mark a break-glass event as reviewed.
+
+    Requires:
+      - is_staff=True
+      - reviewer must differ from the admin who invoked the access
+      - optional review_notes
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def post(self, request, event_id: int):
+        event = EmergencyAccess.objects.filter(pk=event_id).first()
+        if event is None:
+            return Response(
+                {"detail": "Emergency access record not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        review_notes = request.data.get("review_notes", "").strip()
+
+        try:
+            review_break_glass(
+                event=event,
+                reviewer=request.user,
+                review_notes=review_notes,
+            )
+        except (PermissionError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "detail": "Break-glass event marked as reviewed.",
+                "emergency_access_id": event.pk,
+                "reviewed_at": event.reviewed_at,
+            }
+        )

@@ -61,6 +61,20 @@ apps/
   patients/             # Patient-facing domain (modular, owns its own models/serializers/views)
 ```
 
+## Auth
+
+- Doctor: `POST /api/v1/doctors/auth/register/` → verify via
+  `/verify-email/` (email OTP) → `/login/` (email+password, JWT) →
+  `/password-reset/{request,confirm}/`
+- Patient — two ways in:
+  - Direct: `POST /api/v1/patients/auth/register/` → `/verify-email/` → `/login/` (email+password), same shape as doctor
+  - Passwordless: `POST /api/v1/patients/auth/otp/{request,verify}/` — account created on first request; verify response includes `password_set`, and `POST /auth/set-password/` (authenticated) lets them add one afterward so future logins don't need another OTP email
+
+Both flows send OTP codes via **Brevo** transactional email
+(`apps.core.services.email`). Without `BREVO_API_KEY` set, codes are logged
+to the console instead of emailed — enough to develop against locally. See
+[ARCHITECTURE.md](ARCHITECTURE.md#auth-model) for the full design.
+
 ## Tooling
 
 - **`.env.example` / `.env`** — `django-environ` reads `.env` when

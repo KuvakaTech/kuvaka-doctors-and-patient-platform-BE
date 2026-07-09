@@ -12,11 +12,14 @@ for in-progress tracking, linking back here.
 - [x] `apps.core.BaseModel` (soft delete, audit timestamps, external UUID)
 - [x] `apps.users.User` — single shared auth model with `user_type`, JWT issuance
 - [x] `apps.doctors` / `apps.patients` app skeletons with a profile model each
+- [x] Doctor auth: register (email+password) → email verification (Brevo OTP) → login (JWT), password reset
+- [x] Patient auth: passwordless email-OTP request/verify (Brevo), lazy account creation on first OTP
+- [x] Shared `EmailOTP` model (hashed codes, expiry, max attempts) + `apps.core` Brevo email service
 
 ## Doctor journey
 
 ### 1. Authentication & Dashboard
-- [ ] Email + password login (JWT) — model supports it, endpoint pending
+- [x] Email + password login (JWT), with email verification and password reset — all via Brevo OTP emails
 - [ ] Google SSO
 - [ ] Doctor profile & specialties (model stub exists — `DoctorProfile.specialties`)
 - [ ] Preferred medicine inventory (voice / OCR / text input)
@@ -65,7 +68,8 @@ for in-progress tracking, linking back here.
 
 ## Patient journey
 
-- [ ] Auth layer (phone/OTP)
+- [x] Auth layer — two onboarding paths: direct email+password signup, and passwordless email-OTP (Brevo) with optional password set-up afterward so repeat logins don't require another OTP email (phone/SMS OTP deferred until an SMS vendor is picked; see ARCHITECTURE.md)
+- [ ] Patient-side password-reset request/confirm (doctor side has it; not yet wired up for patients)
 - [ ] Unified profile & its management
 - [ ] Analytics & dashboard (patient-facing)
 - [ ] Consent management: grant/revoke access, share records, share temporarily
