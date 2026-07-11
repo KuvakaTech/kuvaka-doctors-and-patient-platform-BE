@@ -31,10 +31,21 @@ from apps.users.totp_service import (
 
 
 class DoctorProfileViewSet(viewsets.ModelViewSet):
-    """Doctor-owned profile records; full clinic/appointment/EMR routes land here as they ship."""
+    """
+    Doctor-owned profile records; full clinic/appointment/EMR routes land
+    here as they ship.
+
+    No create/delete — a DoctorProfile is created exactly once, alongside
+    the User, by DoctorRegisterSerializer.create() (and by
+    ClinicStaffListCreateView for admin-created doctor accounts). Allowing
+    POST here would let any authenticated doctor create a second, orphaned
+    DoctorProfile with no `user` set (the serializer doesn't expose that
+    field), which crashes with an IntegrityError rather than a clean error.
+    """
 
     queryset = DoctorProfile.objects.filter(deleted=False)
     serializer_class = DoctorProfileSerializer
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)

@@ -46,10 +46,21 @@ from apps.users.tokens import blacklist_all_tokens, issue_tokens
 
 
 class PatientProfileViewSet(viewsets.ModelViewSet):
-    """Patient-owned profile records; consent/record-sharing routes land here as they ship."""
+    """
+    Patient-owned profile records; consent/record-sharing routes land here
+    as they ship.
+
+    No create/delete — a PatientProfile is created exactly once, alongside
+    the User, by the various registration flows (PatientRegisterSerializer,
+    OTP onboarding, ProvisionalPatientCreateView). Allowing POST here would
+    let any authenticated patient create a second, orphaned PatientProfile
+    with no `user` set (the serializer doesn't expose that field), which
+    crashes with an IntegrityError rather than a clean error.
+    """
 
     queryset = PatientProfile.objects.filter(deleted=False)
     serializer_class = PatientProfileSerializer
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
