@@ -130,6 +130,11 @@ TEMPLATES = [
 
 # CORS
 # ------------------------------------------------------------------------------
+# CORS_ALLOW_ALL_ORIGINS bypasses CORS_ALLOWED_ORIGINS entirely (django-cors-headers
+# doesn't treat "*" in CORS_ALLOWED_ORIGINS as a wildcard — this is the real switch).
+# Auth here is JWT bearer tokens, not cookies, so this isn't a CSRF/session-hijack
+# vector, but it does mean any origin can call the API from a browser.
+CORS_ALLOW_ALL_ORIGINS = env.bool("DJANGO_CORS_ALLOW_ALL_ORIGINS", default=False)
 CORS_ALLOWED_ORIGINS = env.list("DJANGO_CORS_ALLOWED_ORIGINS", default=[])
 
 # STATIC
