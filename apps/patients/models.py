@@ -4,6 +4,23 @@ from django.db import models
 from apps.core.models import BaseModel
 
 
+class Sex(models.TextChoices):
+    MALE = "M", "Male"
+    FEMALE = "F", "Female"
+    OTHER = "Other", "Other"
+
+
+class BloodGroup(models.TextChoices):
+    A_POSITIVE = "A+", "A+"
+    A_NEGATIVE = "A-", "A-"
+    B_POSITIVE = "B+", "B+"
+    B_NEGATIVE = "B-", "B-"
+    AB_POSITIVE = "AB+", "AB+"
+    AB_NEGATIVE = "AB-", "AB-"
+    O_POSITIVE = "O+", "O+"
+    O_NEGATIVE = "O-", "O-"
+
+
 class PatientProfile(BaseModel):
     """
     Extends `users.User` (user_type=patient) with the patient's unified
@@ -17,6 +34,8 @@ class PatientProfile(BaseModel):
     )
     date_of_birth = models.DateField(null=True, blank=True)
     emergency_contact_number = models.CharField(max_length=15, blank=True)
+    sex = models.CharField(max_length=8, choices=Sex.choices, blank=True)
+    blood_group = models.CharField(max_length=3, choices=BloodGroup.choices, blank=True)
 
     # Set when a staff member (doctor/receptionist) creates this account on
     # behalf of a patient who can't self-register — e.g. not literate enough
@@ -37,8 +56,25 @@ class PatientProfile(BaseModel):
         return f"PatientProfile<{self.user_id}>"
 
 
+class PatientClinicStatus(models.TextChoices):
+    STABLE = "stable", "Stable"
+    MONITORING = "monitoring", "Monitoring"
+    CRITICAL = "critical", "Critical"
+    DISCHARGED = "discharged", "Discharged"
+    SCHEDULED = "scheduled", "Scheduled"
+
+
 class PatientClinicRegistration(BaseModel):
-    """A patient registering at a specific clinic — patients can register at any number of clinics."""
+    """
+    A patient registering at a specific clinic — patients can register at
+    any number of clinics.
+
+    `status` is this patient's current care status *at this clinic*
+    specifically (not a global property of the patient — the same person
+    can be "critical" at one clinic and "discharged" at another, since
+    they're independent episodes of care). Set manually by a doctor for now;
+    automatic derivation from vitals/problems can layer on top later.
+    """
 
     patient = models.ForeignKey(
         PatientProfile, on_delete=models.CASCADE, related_name="clinic_registrations"
@@ -54,6 +90,9 @@ class PatientClinicRegistration(BaseModel):
         related_name="+",
     )
     mrn = models.CharField(max_length=32, blank=True)  # clinic-local medical record number
+    status = models.CharField(
+        max_length=16, choices=PatientClinicStatus.choices, default=PatientClinicStatus.STABLE
+    )
 
     class Meta:
         constraints = [

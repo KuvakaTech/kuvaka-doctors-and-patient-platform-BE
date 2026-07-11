@@ -53,10 +53,21 @@ PERMISSION_ROLE_MAP: dict[str, set[str]] = {
 }
 
 
+class ClinicSpecialty(models.TextChoices):
+    PRIMARY_CARE = "primary_care", "Primary Care"
+    FAMILY_MEDICINE = "family_medicine", "Family Medicine"
+    CARDIOLOGY = "cardiology", "Cardiology"
+    INTERNAL_MEDICINE = "internal_medicine", "Internal Medicine"
+    PEDIATRICS = "pediatrics", "Pediatrics"
+    URGENT_CARE = "urgent_care", "Urgent Care"
+    OTHER = "other", "Other"
+
+
 class Clinic(BaseModel):
     """A hospital or clinic that staff belong to and patients register at."""
 
     name = models.CharField(max_length=255)
+    specialty = models.CharField(max_length=32, choices=ClinicSpecialty.choices, blank=True)
     registration_number = models.CharField(max_length=64, blank=True)
     address_line1 = models.CharField(max_length=255, blank=True)
     address_line2 = models.CharField(max_length=255, blank=True)
@@ -65,6 +76,8 @@ class Clinic(BaseModel):
     pincode = models.CharField(max_length=10, blank=True)
     phone_number = models.CharField(max_length=15, blank=True)
     email = models.EmailField(blank=True)
+    hours = models.CharField(max_length=255, blank=True)  # free text, e.g. "Mon-Fri 8:00 AM - 5:00 PM"
+    notes = models.TextField(blank=True)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -15,11 +15,17 @@ from apps.users.models import User
 
 
 class ClinicSerializer(serializers.ModelSerializer):
+    patient_count = serializers.SerializerMethodField()
+    critical_count = serializers.SerializerMethodField()
+    active_today = serializers.SerializerMethodField()
+    monthly_revenue = serializers.SerializerMethodField()
+
     class Meta:
         model = Clinic
         fields = (
             "external_id",
             "name",
+            "specialty",
             "registration_number",
             "address_line1",
             "address_line2",
@@ -28,9 +34,51 @@ class ClinicSerializer(serializers.ModelSerializer):
             "pincode",
             "phone_number",
             "email",
+            "hours",
+            "notes",
             "is_active",
+            "patient_count",
+            "critical_count",
+            "active_today",
+            "monthly_revenue",
         )
-        read_only_fields = ("external_id", "is_active")
+        read_only_fields = (
+            "external_id",
+            "is_active",
+            "patient_count",
+            "critical_count",
+            "active_today",
+            "monthly_revenue",
+        )
+
+    def get_patient_count(self, obj):
+        return obj.patient_registrations.filter(deleted=False).count()
+
+    def get_critical_count(self, obj):
+        return obj.patient_registrations.filter(deleted=False, status="critical").count()
+
+    def get_active_today(self, obj):
+        # Local import — apps.clinical depends on apps.clinics, so importing
+        # it back at module load time here would be circular.
+        from django.utils import timezone
+
+        from apps.clinical.models import Visit
+
+        return Visit.objects.filter(
+            clinic=obj, visit_date=timezone.localdate(), deleted=False
+        ).count()
+
+    def get_monthly_revenue(self, obj):
+        from django.db.models import Sum
+        from django.utils import timezone
+
+        from apps.clinical.models import Visit
+
+        now = timezone.localdate()
+        total = Visit.objects.filter(
+            clinic=obj, visit_date__year=now.year, visit_date__month=now.month, deleted=False
+        ).aggregate(total=Sum("amount_paid"))["total"]
+        return total or 0
 
 
 class StaffUserSerializer(serializers.ModelSerializer):

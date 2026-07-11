@@ -9,19 +9,44 @@ def client():
     return APIClient()
 
 
+# Fields required by DoctorRegisterSerializer beyond email/password.
+_REQUIRED_REGISTER_FIELDS = {"first_name": "Jane", "last_name": "Doe", "terms_accepted": True}
+
+
 @pytest.mark.django_db
 def test_register_creates_unverified_user_and_sends_otp(client):
     response = client.post(
         "/api/v1/doctors/auth/register/",
-        {"email": "doc@example.com", "password": "S3curePass!23", "full_name": "Dr. Doe"},
+        {
+            "email": "doc@example.com",
+            "password": "S3curePass!23",
+            **_REQUIRED_REGISTER_FIELDS,
+        },
     )
     assert response.status_code == 201
 
     user = User.objects.get(email="doc@example.com")
     assert user.user_type == "doctor"
     assert user.email_verified is False
+    assert user.full_name == "Jane Doe"
     assert hasattr(user, "doctor_profile")
+    assert user.doctor_profile.terms_accepted_at is not None
     assert EmailOTP.objects.filter(user=user, purpose=OTPPurpose.EMAIL_VERIFICATION).exists()
+
+
+@pytest.mark.django_db
+def test_register_requires_terms_acceptance(client):
+    response = client.post(
+        "/api/v1/doctors/auth/register/",
+        {
+            "email": "doc@example.com",
+            "password": "S3curePass!23",
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "terms_accepted": False,
+        },
+    )
+    assert response.status_code == 400
 
 
 @pytest.mark.django_db
@@ -29,7 +54,7 @@ def test_register_rejects_duplicate_email(client):
     User.objects.create_user(email="doc@example.com", password="pass1234", user_type="doctor")
     response = client.post(
         "/api/v1/doctors/auth/register/",
-        {"email": "doc@example.com", "password": "S3curePass!23"},
+        {"email": "doc@example.com", "password": "S3curePass!23", **_REQUIRED_REGISTER_FIELDS},
     )
     assert response.status_code == 400
 
@@ -38,7 +63,7 @@ def test_register_rejects_duplicate_email(client):
 def test_login_blocked_until_email_verified(client):
     client.post(
         "/api/v1/doctors/auth/register/",
-        {"email": "doc@example.com", "password": "S3curePass!23"},
+        {"email": "doc@example.com", "password": "S3curePass!23", **_REQUIRED_REGISTER_FIELDS},
     )
     response = client.post(
         "/api/v1/doctors/auth/login/",
@@ -51,7 +76,7 @@ def test_login_blocked_until_email_verified(client):
 def test_verify_email_then_login_succeeds(client):
     client.post(
         "/api/v1/doctors/auth/register/",
-        {"email": "doc@example.com", "password": "S3curePass!23"},
+        {"email": "doc@example.com", "password": "S3curePass!23", **_REQUIRED_REGISTER_FIELDS},
     )
     user = User.objects.get(email="doc@example.com")
 
@@ -81,7 +106,7 @@ def test_verify_email_then_login_succeeds(client):
 def test_login_rejects_wrong_password(client):
     client.post(
         "/api/v1/doctors/auth/register/",
-        {"email": "doc@example.com", "password": "S3curePass!23"},
+        {"email": "doc@example.com", "password": "S3curePass!23", **_REQUIRED_REGISTER_FIELDS},
     )
     response = client.post(
         "/api/v1/doctors/auth/login/", {"email": "doc@example.com", "password": "wrong"}
@@ -93,7 +118,11 @@ def test_login_rejects_wrong_password(client):
 def test_password_reset_flow(client):
     client.post(
         "/api/v1/doctors/auth/register/",
-        {"email": "doc@example.com", "password": "OldSecurePass!234"},
+        {
+            "email": "doc@example.com",
+            "password": "OldSecurePass!234",
+            **_REQUIRED_REGISTER_FIELDS,
+        },
     )
     user = User.objects.get(email="doc@example.com")
     _otp, code = EmailOTP.issue(user, OTPPurpose.PASSWORD_RESET)

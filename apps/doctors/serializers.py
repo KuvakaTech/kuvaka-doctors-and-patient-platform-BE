@@ -1,4 +1,5 @@
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.clinics.models import Medicine
@@ -25,6 +26,8 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
             "external_id",
             "specialties",
             "registration_number",
+            "credentials",
+            "licensed_state",
             "preferred_medicines",
             "preferred_medicines_detail",
         )
@@ -32,9 +35,17 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
 
 
 class DoctorRegisterSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    credentials = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    specialty = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    registration_number = serializers.CharField(
+        max_length=64, required=False, allow_blank=True
+    )  # NPI or local equivalent
+    licensed_state = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    terms_accepted = serializers.BooleanField(write_only=True)
 
     def validate_email(self, value):
         email = value.lower()
@@ -42,14 +53,28 @@ class DoctorRegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError("An account with this email already exists.")
         return email
 
+    def validate_terms_accepted(self, value):
+        if not value:
+            raise serializers.ValidationError("You must accept the terms to register.")
+        return value
+
     def create(self, validated_data):
+        full_name = f"{validated_data['first_name']} {validated_data['last_name']}".strip()
         user = User.objects.create_user(
             email=validated_data["email"],
             password=validated_data["password"],
-            full_name=validated_data.get("full_name", ""),
+            full_name=full_name,
             user_type=UserType.DOCTOR,
         )
-        DoctorProfile.objects.create(user=user)
+        specialty = validated_data.get("specialty")
+        DoctorProfile.objects.create(
+            user=user,
+            specialties=[specialty] if specialty else [],
+            registration_number=validated_data.get("registration_number", ""),
+            credentials=validated_data.get("credentials", ""),
+            licensed_state=validated_data.get("licensed_state", ""),
+            terms_accepted_at=timezone.now(),
+        )
         # Seed password history with the registration password itself, so a
         # later "change it back" isn't invisible to PasswordHistoryValidator.
         record_password_change(user)

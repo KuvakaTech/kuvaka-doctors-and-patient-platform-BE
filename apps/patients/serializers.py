@@ -4,11 +4,13 @@ from rest_framework import serializers
 from apps.clinics.models import Clinic
 from apps.clinics.serializers import ClinicSerializer
 from apps.patients.models import (
+    BloodGroup,
     ConsentGrant,
     ConsentScope,
     FamilyMember,
     PatientClinicRegistration,
     PatientProfile,
+    Sex,
 )
 from apps.users.models import User, UserType
 from apps.users.password_history import record_password_change
@@ -20,6 +22,8 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         fields = (
             "external_id",
             "date_of_birth",
+            "sex",
+            "blood_group",
             "emergency_contact_number",
             "is_provisional",
         )
@@ -29,10 +33,19 @@ class PatientProfileSerializer(serializers.ModelSerializer):
 class PatientBriefSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source="user.full_name", read_only=True)
     phone_number = serializers.CharField(source="user.phone_number", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
 
     class Meta:
         model = PatientProfile
-        fields = ("external_id", "full_name", "phone_number", "date_of_birth")
+        fields = (
+            "external_id",
+            "full_name",
+            "phone_number",
+            "email",
+            "date_of_birth",
+            "sex",
+            "blood_group",
+        )
         read_only_fields = fields
 
 
@@ -53,7 +66,15 @@ class PatientClinicRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PatientClinicRegistration
-        fields = ("external_id", "patient", "patient_detail", "clinic", "clinic_detail", "mrn")
+        fields = (
+            "external_id",
+            "patient",
+            "patient_detail",
+            "clinic",
+            "clinic_detail",
+            "mrn",
+            "status",
+        )
         read_only_fields = ("external_id", "patient_detail", "clinic_detail")
 
 
@@ -71,8 +92,14 @@ class ProvisionalPatientCreateSerializer(serializers.Serializer):
     """
 
     phone_number = serializers.CharField(max_length=15)
-    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
+    email = serializers.EmailField(required=False, allow_blank=True)
     date_of_birth = serializers.DateField(required=False, allow_null=True)
+    sex = serializers.ChoiceField(choices=Sex.choices, required=False, allow_blank=True)
+    blood_group = serializers.ChoiceField(
+        choices=BloodGroup.choices, required=False, allow_blank=True
+    )
     clinic = serializers.SlugRelatedField(
         slug_field="external_id",
         queryset=Clinic.objects.filter(deleted=False),
@@ -80,6 +107,12 @@ class ProvisionalPatientCreateSerializer(serializers.Serializer):
         allow_null=True,
     )
     mrn = serializers.CharField(max_length=32, required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        email = value.lower()
+        if email and User.objects.filter(email=email).exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        return email
 
 
 class ProvisionalPatientClaimSerializer(serializers.Serializer):

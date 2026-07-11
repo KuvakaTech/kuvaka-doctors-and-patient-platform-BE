@@ -1,14 +1,50 @@
 """Cross-cutting patient-profile operations that don't belong to a single model."""
 
 from django.db import transaction
+from django.utils import timezone
 
 from apps.patients.models import (
     ConsentGrant,
+    ConsentGrantStatus,
+    ConsentScope,
     FamilyMember,
     PatientClinicRegistration,
     PatientMergeLog,
     PatientProfile,
 )
+
+
+def ensure_clinic_consent(*, patient: PatientProfile, clinic, granted_by) -> ConsentGrant:
+    """
+    Registering a patient at a clinic is itself the explicit consent event —
+    someone (the patient via OTP, or staff with the patient physically
+    present) took a real action to associate them with this specific
+    clinic. Rather than leaving that consent implicit, this records it as a
+    real, auditable, revocable `ConsentGrant` scoped to just this clinic —
+    satisfying "closed by default, explicit grant required" without a
+    separate approval round-trip for a clinic the patient just registered
+    at. Cross-clinic access still requires its own grant.
+
+    Idempotent — safe to call on every registration; reuses an existing
+    active grant for this (patient, clinic) pair instead of stacking dupes.
+    """
+    existing = ConsentGrant.objects.filter(
+        patient=patient,
+        grantee_clinic=clinic,
+        status=ConsentGrantStatus.ACTIVE,
+        deleted=False,
+    ).first()
+    if existing is not None:
+        return existing
+
+    return ConsentGrant.objects.create(
+        patient=patient,
+        grantee_clinic=clinic,
+        scope=[ConsentScope.FULL],
+        status=ConsentGrantStatus.ACTIVE,
+        granted_at=timezone.now(),
+        requested_by=granted_by,
+    )
 
 
 @transaction.atomic

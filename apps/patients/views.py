@@ -8,7 +8,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.clinics.permissions import require_membership
+from apps.clinics.models import Clinic
+from apps.clinics.permissions import ADMIN_ROLES, require_membership
 from apps.core.services.audit import AuthEvent, log_auth_event
 from apps.core.services.lockout import clear_failed_attempts, record_failed_attempt
 from apps.patients.models import (
@@ -35,7 +36,7 @@ from apps.patients.serializers import (
     ProvisionalPatientCreateSerializer,
     SetPasswordSerializer,
 )
-from apps.patients.services import merge_patients
+from apps.patients.services import ensure_clinic_consent, merge_patients
 from apps.users.models import OTPPurpose, User, UserType
 from apps.users.otp_service import issue_and_send_otp, verify_otp
 from apps.users.password_history import record_password_change
@@ -378,16 +379,36 @@ class PatientClinicRegistrationListCreateView(generics.ListCreateAPIView):
         clinic_id = self.request.query_params.get("clinic")
         if not clinic_id:
             raise ValidationError({"clinic": "Required for staff — pass ?clinic=<external_id>."})
-        qs = PatientClinicRegistration.objects.filter(clinic__external_id=clinic_id, deleted=False)
-        if qs.exists():
-            require_membership(user, qs.first().clinic)
-        return qs
+        clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
+        require_membership(user, clinic)
+        return PatientClinicRegistration.objects.filter(clinic=clinic, deleted=False)
 
     def perform_create(self, serializer):
         _require_staff_user(self.request.user)
         clinic = serializer.validated_data["clinic"]
         require_membership(self.request.user, clinic)
-        serializer.save(registered_by=self.request.user)
+        registration = serializer.save(registered_by=self.request.user)
+        ensure_clinic_consent(
+            patient=registration.patient, clinic=clinic, granted_by=self.request.user
+        )
+
+
+class PatientClinicRegistrationDetailView(generics.RetrieveUpdateAPIView):
+    """Update a patient's status (stable/monitoring/critical/discharged/scheduled) at this clinic, or their MRN."""
+
+    serializer_class = PatientClinicRegistrationSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = "external_id"
+
+    def get_queryset(self):
+        return PatientClinicRegistration.objects.filter(deleted=False)
+
+    def get_object(self):
+        registration = super().get_object()
+        membership = require_membership(self.request.user, registration.clinic)
+        if self.request.method in ("PUT", "PATCH") and membership.role not in ADMIN_ROLES:
+            raise PermissionDenied("Only a doctor or clinic admin can update a patient's status.")
+        return registration
 
 
 # ---------------------------------------------------------------------------
@@ -424,15 +445,19 @@ class ProvisionalPatientCreateView(APIView):
             profile = existing.patient_profile
         else:
             pin = "".join(secrets.choice("0123456789") for _ in range(6))
+            full_name = f"{data['first_name']} {data['last_name']}".strip()
             user = User.objects.create_user(
                 phone_number=data["phone_number"],
+                email=data.get("email") or None,
                 password=pin,
-                full_name=data.get("full_name", ""),
+                full_name=full_name,
                 user_type=UserType.PATIENT,
             )
             profile = PatientProfile.objects.create(
                 user=user,
                 date_of_birth=data.get("date_of_birth"),
+                sex=data.get("sex", ""),
+                blood_group=data.get("blood_group", ""),
                 created_by=request.user,
                 is_provisional=True,
             )
@@ -444,6 +469,7 @@ class ProvisionalPatientCreateView(APIView):
                 clinic=clinic,
                 defaults={"registered_by": request.user, "mrn": data.get("mrn", "")},
             )
+            ensure_clinic_consent(patient=profile, clinic=clinic, granted_by=request.user)
 
         response = {
             "patient": PatientProfileSerializer(profile).data,

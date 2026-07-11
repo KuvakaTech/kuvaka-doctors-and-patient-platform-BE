@@ -76,6 +76,50 @@ class ClinicViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
+class DashboardSummaryView(APIView):
+    """
+    Totals across every clinic the caller is active staff at — the
+    top-of-dashboard numbers (total clinics, total patients, patients
+    needing attention, visits today, this month's revenue).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Sum
+
+        from apps.clinical.models import Visit
+        from apps.patients.models import PatientClinicRegistration, PatientClinicStatus
+
+        clinic_ids = ClinicStaffMembership.objects.filter(
+            user=request.user, is_active=True, deleted=False
+        ).values_list("clinic_id", flat=True)
+
+        registrations = PatientClinicRegistration.objects.filter(
+            clinic_id__in=clinic_ids, deleted=False
+        )
+        now = timezone.localdate()
+        visits = Visit.objects.filter(clinic_id__in=clinic_ids, deleted=False)
+
+        return Response(
+            {
+                "total_clinics": len(set(clinic_ids)),
+                "total_patients": registrations.values("patient_id").distinct().count(),
+                "needing_attention": registrations.filter(
+                    status=PatientClinicStatus.CRITICAL
+                )
+                .values("patient_id")
+                .distinct()
+                .count(),
+                "active_visits_today": visits.filter(visit_date=now).count(),
+                "monthly_revenue": visits.filter(
+                    visit_date__year=now.year, visit_date__month=now.month
+                ).aggregate(total=Sum("amount_paid"))["total"]
+                or 0,
+            }
+        )
+
+
 def _get_clinic(external_id) -> Clinic:
     return get_object_or_404(Clinic, external_id=external_id, deleted=False)
 
@@ -123,6 +167,15 @@ class ClinicStaffListCreateView(generics.ListCreateAPIView):
         # vouches for them, so there's no email-ownership loop to close.
         user.email_verified = True
         user.save(update_fields=["email_verified"])
+
+        if data["role"] == UserType.DOCTOR:
+            # The doctor self-registration flow (DoctorRegisterSerializer)
+            # always creates this alongside the User; an admin creating a
+            # doctor account here must do the same, or that doctor has no
+            # home for preferred_medicines / their prescribing formulary.
+            from apps.doctors.models import DoctorProfile
+
+            DoctorProfile.objects.create(user=user)
 
         membership = ClinicStaffMembership.objects.create(
             clinic=clinic,

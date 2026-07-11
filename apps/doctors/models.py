@@ -16,7 +16,10 @@ class DoctorProfile(BaseModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="doctor_profile"
     )
     specialties = models.JSONField(default=list, blank=True)
-    registration_number = models.CharField(max_length=64, blank=True)
+    registration_number = models.CharField(max_length=64, blank=True)  # e.g. NPI or local equivalent
+    credentials = models.CharField(max_length=100, blank=True)  # free text, e.g. "MD, DM"
+    licensed_state = models.CharField(max_length=100, blank=True)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
     preferred_medicines = models.ManyToManyField(
         "clinics.Medicine", blank=True, related_name="preferred_by_doctors"
     )

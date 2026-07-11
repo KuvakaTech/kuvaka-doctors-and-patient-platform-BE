@@ -7,6 +7,7 @@ from apps.patients.views import (
     FamilyMemberListCreateView,
     FamilyMemberRespondView,
     PatientChangePasswordView,
+    PatientClinicRegistrationDetailView,
     PatientClinicRegistrationListCreateView,
     PatientLoginView,
     PatientMergeView,
@@ -61,6 +62,11 @@ urlpatterns = [
         "clinic-registrations/",
         PatientClinicRegistrationListCreateView.as_view(),
         name="patient-clinic-registration-list-create",
+    ),
+    path(
+        "clinic-registrations/<uuid:external_id>/",
+        PatientClinicRegistrationDetailView.as_view(),
+        name="patient-clinic-registration-detail",
     ),
     # Family members
     path(
