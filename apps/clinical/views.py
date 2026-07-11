@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.clinical.models import Allergy, DoctorMedicine, Problem, Visit, Vitals
+from apps.clinical.models import Allergy, DoctorMedicine, Prescription, Problem, Visit, Vitals
 from apps.clinical.permissions import require_patient_access
 from apps.clinical.serializers import (
     AllergySerializer,
@@ -80,9 +80,43 @@ class PatientChartView(_ClinicPatientScopedView, APIView):
                 "problems": ProblemSerializer(
                     Problem.objects.filter(patient=patient, deleted=False), many=True
                 ).data,
+                "current_medications": self._current_medications(patient, clinic),
                 "visits": VisitSummarySerializer(visits, many=True).data,
             }
         )
+
+    @staticmethod
+    def _current_medications(patient, clinic):
+        """
+        A flattened, deduplicated view of what the patient is currently
+        prescribed — one entry per medicine name, taken from their most
+        recent visit at this clinic that prescribed it. `visits` already
+        exposes the full per-visit prescription history for anyone who
+        needs that instead.
+        """
+        prescriptions = (
+            Prescription.objects.filter(
+                visit__patient=patient, visit__clinic=clinic, visit__deleted=False, deleted=False
+            )
+            .select_related("visit")
+            .order_by("-visit__visit_date", "-created_date")
+        )
+        seen = set()
+        medications = []
+        for prescription in prescriptions:
+            if prescription.medicine_name in seen:
+                continue
+            seen.add(prescription.medicine_name)
+            medications.append(
+                {
+                    "medicine_name": prescription.medicine_name,
+                    "dosage": prescription.dosage,
+                    "frequency": prescription.frequency,
+                    "duration": prescription.duration,
+                    "prescribed_date": prescription.visit.visit_date,
+                }
+            )
+        return medications
 
 
 # ---------------------------------------------------------------------------

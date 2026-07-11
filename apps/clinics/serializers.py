@@ -17,6 +17,7 @@ from apps.users.models import User
 class ClinicSerializer(serializers.ModelSerializer):
     patient_count = serializers.SerializerMethodField()
     critical_count = serializers.SerializerMethodField()
+    monitoring_count = serializers.SerializerMethodField()
     active_today = serializers.SerializerMethodField()
     monthly_revenue = serializers.SerializerMethodField()
 
@@ -39,6 +40,7 @@ class ClinicSerializer(serializers.ModelSerializer):
             "is_active",
             "patient_count",
             "critical_count",
+            "monitoring_count",
             "active_today",
             "monthly_revenue",
         )
@@ -47,6 +49,7 @@ class ClinicSerializer(serializers.ModelSerializer):
             "is_active",
             "patient_count",
             "critical_count",
+            "monitoring_count",
             "active_today",
             "monthly_revenue",
         )
@@ -56,6 +59,9 @@ class ClinicSerializer(serializers.ModelSerializer):
 
     def get_critical_count(self, obj):
         return obj.patient_registrations.filter(deleted=False, status="critical").count()
+
+    def get_monitoring_count(self, obj):
+        return obj.patient_registrations.filter(deleted=False, status="monitoring").count()
 
     def get_active_today(self, obj):
         # Local import — apps.clinical depends on apps.clinics, so importing
