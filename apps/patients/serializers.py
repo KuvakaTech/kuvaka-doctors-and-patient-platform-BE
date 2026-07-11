@@ -5,6 +5,7 @@ from apps.clinics.models import Clinic
 from apps.clinics.serializers import ClinicSerializer
 from apps.patients.models import (
     ConsentGrant,
+    ConsentScope,
     FamilyMember,
     PatientClinicRegistration,
     PatientProfile,
@@ -137,6 +138,9 @@ class ConsentGrantSerializer(serializers.ModelSerializer):
         queryset=User.objects.filter(deleted=False),
         required=False,
         allow_null=True,
+    )
+    scope = serializers.ListField(
+        child=serializers.ChoiceField(choices=ConsentScope.choices), allow_empty=False
     )
 
     class Meta:

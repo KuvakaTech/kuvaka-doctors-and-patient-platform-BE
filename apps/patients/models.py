@@ -127,6 +127,37 @@ class ConsentGrantStatus(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class ConsentScope(models.TextChoices):
+    """
+    The closed set of record categories a patient can grant access to.
+    `ConsentGrant.scope` may only ever contain values from this list —
+    mirrors `apps.clinics.models.PermissionFlag` for the same reason: a
+    free-form string field has no way to reject a typo or an invented
+    value, and a future clinical-data endpoint checking `"diagnosis" in
+    scope` when every grant actually stored `"diagnoses"` would silently
+    deny access to everyone.
+    """
+
+    DIAGNOSES = "diagnoses", "Diagnoses"
+    ALLERGIES = "allergies", "Allergies"
+    MEDICATIONS = "medications", "Medications (current & past)"
+    CHRONIC_CONDITIONS = "chronic_conditions", "Chronic Conditions"
+    SURGERIES = "surgeries", "Surgeries"
+    FAMILY_HISTORY = "family_history", "Family History"
+    VACCINATIONS = "vaccinations", "Vaccinations"
+    VITALS = "vitals", "Vitals"
+    LAB_REPORTS = "lab_reports", "Lab Reports"
+    IMAGING_REPORTS = "imaging_reports", "Imaging Reports"
+    DISCHARGE_SUMMARIES = "discharge_summaries", "Discharge Summaries"
+    PRESCRIPTIONS = "prescriptions", "Prescriptions"
+    AI_SUMMARIES = "ai_summaries", "AI Summaries"
+    CONVERSATION_TRANSCRIPTS = "conversation_transcripts", "Conversation Transcripts"
+    AUDIO_RECORDINGS = "audio_recordings", "Audio Recordings"
+    UPLOADED_DOCUMENTS = "uploaded_documents", "Uploaded Documents"
+    REFERRALS = "referrals", "Referrals"
+    FULL = "full", "Full Profile"
+
+
 class ConsentGrant(BaseModel):
     """
     A patient granting a doctor or clinic access to (some or all of) their

@@ -5,10 +5,12 @@ from apps.clinics.models import (
     ClinicInventoryItem,
     ClinicStaffMembership,
     Medicine,
+    PermissionFlag,
     PurchaseOrder,
     STAFF_ROLE_CHOICES,
     StaffTaskGrant,
 )
+from apps.clinics.permissions import validate_flag_for_role
 from apps.users.models import User
 
 
@@ -40,11 +42,20 @@ class StaffUserSerializer(serializers.ModelSerializer):
 
 class ClinicStaffMembershipSerializer(serializers.ModelSerializer):
     user = StaffUserSerializer(read_only=True)
+    permissions = serializers.ListField(
+        child=serializers.ChoiceField(choices=PermissionFlag.choices), required=False
+    )
 
     class Meta:
         model = ClinicStaffMembership
         fields = ("external_id", "user", "role", "permissions", "is_active")
         read_only_fields = ("external_id", "user", "is_active")
+
+    def validate(self, attrs):
+        role = attrs.get("role", self.instance.role if self.instance else None)
+        for flag in attrs.get("permissions", []):
+            validate_flag_for_role(flag, role)
+        return attrs
 
 
 class StaffCreateSerializer(serializers.Serializer):
@@ -61,7 +72,9 @@ class StaffCreateSerializer(serializers.Serializer):
     phone_number = serializers.CharField(max_length=15, required=False, allow_blank=True)
     role = serializers.ChoiceField(choices=STAFF_ROLE_CHOICES)
     permissions = serializers.ListField(
-        child=serializers.CharField(max_length=64), required=False, default=list
+        child=serializers.ChoiceField(choices=PermissionFlag.choices),
+        required=False,
+        default=list,
     )
 
     def validate_email(self, value):
@@ -69,6 +82,11 @@ class StaffCreateSerializer(serializers.Serializer):
         if User.objects.filter(email=email).exists():
             raise serializers.ValidationError("An account with this email already exists.")
         return email
+
+    def validate(self, attrs):
+        for flag in attrs.get("permissions", []):
+            validate_flag_for_role(flag, attrs["role"])
+        return attrs
 
 
 class MedicineSerializer(serializers.ModelSerializer):

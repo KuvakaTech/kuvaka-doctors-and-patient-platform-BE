@@ -14,12 +14,19 @@ from apps.clinics.models import (
     ClinicInventoryItem,
     ClinicStaffMembership,
     Medicine,
+    PermissionFlag,
     PurchaseOrder,
     PurchaseOrderStatus,
     StaffTaskGrant,
     StaffTaskGrantStatus,
 )
-from apps.clinics.permissions import get_membership, require_admin, require_membership
+from apps.clinics.permissions import (
+    get_membership,
+    require_admin,
+    require_membership,
+    require_permission,
+    validate_flag_for_role,
+)
 from apps.clinics.serializers import (
     ClinicInventoryItemSerializer,
     ClinicSerializer,
@@ -98,7 +105,7 @@ class ClinicStaffListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         clinic = self.get_clinic()
-        require_admin(request.user, clinic, permission_flag="manage_staff")
+        require_permission(request.user, clinic, PermissionFlag.MANAGE_STAFF)
 
         serializer = StaffCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -146,7 +153,7 @@ class ClinicStaffDetailView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         clinic = _get_clinic(self.kwargs["clinic_external_id"])
-        require_admin(self.request.user, clinic, permission_flag="manage_staff")
+        require_permission(self.request.user, clinic, PermissionFlag.MANAGE_STAFF)
         return ClinicStaffMembership.objects.filter(clinic=clinic, deleted=False)
 
 
@@ -186,8 +193,12 @@ class StaffTaskGrantListCreateView(generics.ListCreateAPIView):
             raise PermissionDenied("Only a doctor can delegate a task to a staff member.")
 
         grantee = serializer.validated_data["grantee"]
-        if get_membership(grantee, clinic) is None:
+        grantee_membership = get_membership(grantee, clinic)
+        if grantee_membership is None:
             raise ValidationError({"grantee": "This user is not an active staff member here."})
+        # e.g. add_vitals can only ever be delegated to a nurse — reject
+        # before it's ever stored, not just at enforcement time.
+        validate_flag_for_role(serializer.validated_data["task_type"], grantee_membership.role)
 
         serializer.save(clinic=clinic, granted_by=self.request.user)
 
@@ -249,7 +260,7 @@ class ClinicInventoryListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         clinic = self.get_clinic()
-        require_admin(self.request.user, clinic, permission_flag="manage_inventory")
+        require_permission(self.request.user, clinic, PermissionFlag.MANAGE_INVENTORY)
         serializer.save(clinic=clinic)
 
 
@@ -260,7 +271,7 @@ class ClinicInventoryDetailView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         clinic = _get_clinic(self.kwargs["clinic_external_id"])
-        require_admin(self.request.user, clinic, permission_flag="manage_inventory")
+        require_permission(self.request.user, clinic, PermissionFlag.MANAGE_INVENTORY)
         return ClinicInventoryItem.objects.filter(clinic=clinic, deleted=False)
 
 
@@ -278,7 +289,7 @@ class PurchaseOrderListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         clinic = self.get_clinic()
-        require_admin(self.request.user, clinic, permission_flag="manage_inventory")
+        require_permission(self.request.user, clinic, PermissionFlag.MANAGE_INVENTORY)
         serializer.save(
             clinic=clinic,
             status=PurchaseOrderStatus.ORDERED,
@@ -294,7 +305,7 @@ class PurchaseOrderReceiveView(APIView):
 
     def post(self, request, clinic_external_id, external_id):
         clinic = _get_clinic(clinic_external_id)
-        require_admin(request.user, clinic, permission_flag="manage_inventory")
+        require_permission(request.user, clinic, PermissionFlag.MANAGE_INVENTORY)
         order = get_object_or_404(
             PurchaseOrder, clinic=clinic, external_id=external_id, deleted=False
         )

@@ -8,6 +8,51 @@ from apps.users.models import UserType
 STAFF_ROLE_CHOICES = [c for c in UserType.choices if c[0] != UserType.PATIENT]
 
 
+class PermissionFlag(models.TextChoices):
+    """
+    The closed set of delegable capabilities in the system. `permissions`
+    on `ClinicStaffMembership` and `task_type` on `StaffTaskGrant` may only
+    ever contain values from this list — never a free-form string — so a
+    typo or an invented client-side value can't silently grant access to
+    nothing (or, worse, be checked for and silently ignored).
+
+    Every flag also has an entry in `PERMISSION_ROLE_MAP` declaring which
+    roles are even eligible to hold it — see that map's docstring.
+    """
+
+    MANAGE_STAFF = "manage_staff", "Manage Staff"
+    MANAGE_INVENTORY = "manage_inventory", "Manage Inventory"
+    VIEW_REVENUE = "view_revenue", "View Revenue"
+    EDIT_PRESCRIPTIONS = "edit_prescriptions", "Edit Prescriptions"
+    ADD_VITALS = "add_vitals", "Add Vitals"
+    UPLOAD_REPORTS = "upload_reports", "Upload Reports"
+    UPLOAD_IMAGES = "upload_images", "Upload Images"
+    VIEW_PATIENT_HISTORY = "view_patient_history", "View Patient History"
+    VOICE_NOTES = "voice_notes", "Voice Notes"
+    OCR = "ocr", "OCR"
+
+
+# Roles (beyond CLINIC_ADMIN/DOCTOR, which always bypass permission checks —
+# see apps.clinics.permissions.ADMIN_ROLES) that are eligible to hold each
+# flag. A flag mapped to an empty set is admin/doctor-only and can never be
+# granted to anyone else, no matter what a caller puts in `permissions`.
+# This is what actually answers "only a nurse can add vitals": ADD_VITALS
+# maps to {NURSE} — a receptionist can never legally hold that flag because
+# every write path validates against this map before saving.
+PERMISSION_ROLE_MAP: dict[str, set[str]] = {
+    PermissionFlag.MANAGE_STAFF: set(),
+    PermissionFlag.MANAGE_INVENTORY: {UserType.NURSE, UserType.PHARMACIST, UserType.RECEPTIONIST},
+    PermissionFlag.VIEW_REVENUE: set(),
+    PermissionFlag.EDIT_PRESCRIPTIONS: {UserType.PHARMACIST},
+    PermissionFlag.ADD_VITALS: {UserType.NURSE},
+    PermissionFlag.UPLOAD_REPORTS: {UserType.NURSE, UserType.RECEPTIONIST, UserType.LAB_TECHNICIAN},
+    PermissionFlag.UPLOAD_IMAGES: {UserType.NURSE, UserType.LAB_TECHNICIAN},
+    PermissionFlag.VIEW_PATIENT_HISTORY: {UserType.NURSE},
+    PermissionFlag.VOICE_NOTES: {UserType.NURSE},
+    PermissionFlag.OCR: {UserType.NURSE, UserType.RECEPTIONIST},
+}
+
+
 class Clinic(BaseModel):
     """A hospital or clinic that staff belong to and patients register at."""
 
@@ -140,16 +185,6 @@ class PurchaseOrder(BaseModel):
         return f"PurchaseOrder<{self.clinic_id}:{self.status}>"
 
 
-class StaffTaskType(models.TextChoices):
-    UPLOAD_REPORTS = "upload_reports", "Upload Reports"
-    EDIT_PRESCRIPTION = "edit_prescription", "Edit Prescription"
-    VIEW_HISTORY = "view_history", "View History"
-    UPLOAD_IMAGES = "upload_images", "Upload Images"
-    VOICE_NOTES = "voice_notes", "Voice Notes"
-    OCR = "ocr", "OCR"
-    OTHER = "other", "Other"
-
-
 class StaffTaskGrantStatus(models.TextChoices):
     ACTIVE = "active", "Active"
     REVOKED = "revoked", "Revoked"
@@ -177,7 +212,7 @@ class StaffTaskGrant(BaseModel):
         blank=True,
         related_name="task_grants",
     )
-    task_type = models.CharField(max_length=32, choices=StaffTaskType.choices)
+    task_type = models.CharField(max_length=32, choices=PermissionFlag.choices)
     status = models.CharField(
         max_length=16, choices=StaffTaskGrantStatus.choices, default=StaffTaskGrantStatus.ACTIVE
     )
