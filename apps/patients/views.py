@@ -623,17 +623,22 @@ class ConsentGrantListCreateView(generics.ListCreateAPIView):
             Q(grantee_user=user) | Q(grantee_clinic_id__in=clinic_ids), deleted=False
         )
 
+    @staticmethod
+    def _require_exactly_one_grantee(validated_data):
+        # Also enforced at the DB level (consent_grant_exactly_one_grantee
+        # CHECK constraint) — this is what turns a violation into a clean
+        # 400 instead of an unhandled 500 IntegrityError.
+        grantee_clinic = validated_data.get("grantee_clinic")
+        grantee_user = validated_data.get("grantee_user")
+        if bool(grantee_clinic) == bool(grantee_user):
+            raise ValidationError("Specify exactly one of grantee_clinic or grantee_user.")
+
     def create(self, request, *args, **kwargs):
         user = request.user
         if user.user_type == UserType.PATIENT:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            grantee_clinic = serializer.validated_data.get("grantee_clinic")
-            grantee_user = serializer.validated_data.get("grantee_user")
-            if bool(grantee_clinic) == bool(grantee_user):
-                raise ValidationError(
-                    "Specify exactly one of grantee_clinic or grantee_user."
-                )
+            self._require_exactly_one_grantee(serializer.validated_data)
             grant = serializer.save(
                 patient=user.patient_profile,
                 status=ConsentGrantStatus.ACTIVE,
@@ -648,6 +653,7 @@ class ConsentGrantListCreateView(generics.ListCreateAPIView):
             raise ValidationError({"patient": "Required when requesting access as staff."})
         if not serializer.validated_data.get("reason"):
             raise ValidationError({"reason": "Required when requesting access as staff."})
+        self._require_exactly_one_grantee(serializer.validated_data)
         grant = serializer.save(status=ConsentGrantStatus.PENDING, requested_by=user)
         return Response(ConsentGrantSerializer(grant).data, status=status.HTTP_201_CREATED)
 
