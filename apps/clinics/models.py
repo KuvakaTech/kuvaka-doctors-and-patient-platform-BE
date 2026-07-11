@@ -1,0 +1,188 @@
+from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
+from django.db import models
+
+from apps.core.models import BaseModel
+from apps.users.models import UserType
+
+STAFF_ROLE_CHOICES = [c for c in UserType.choices if c[0] != UserType.PATIENT]
+
+
+class Clinic(BaseModel):
+    """A hospital or clinic that staff belong to and patients register at."""
+
+    name = models.CharField(max_length=255)
+    registration_number = models.CharField(max_length=64, blank=True)
+    address_line1 = models.CharField(max_length=255, blank=True)
+    address_line2 = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    pincode = models.CharField(max_length=10, blank=True)
+    phone_number = models.CharField(max_length=15, blank=True)
+    email = models.EmailField(blank=True)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_clinics",
+    )
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+
+class ClinicStaffMembership(BaseModel):
+    """
+    Links a `User` (doctor/nurse/receptionist/...) to a `Clinic` with a role
+    and a set of permissions. A user can hold one membership per clinic and
+    work across multiple clinics via multiple memberships.
+    """
+
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="staff_memberships")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="clinic_memberships"
+    )
+    role = models.CharField(max_length=20, choices=STAFF_ROLE_CHOICES)
+    permissions = models.JSONField(default=list, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["clinic", "user"], name="unique_clinic_staff_member")
+        ]
+
+    def __str__(self):
+        return f"ClinicStaffMembership<{self.user_id}@{self.clinic_id}:{self.role}>"
+
+
+class Medicine(BaseModel):
+    """Global medicine catalog, shared across clinics."""
+
+    name = models.CharField(max_length=255, db_index=True)
+    generic_name = models.CharField(max_length=255, blank=True)
+    dosage_form = models.CharField(max_length=50, blank=True)
+    strength = models.CharField(max_length=50, blank=True)
+    manufacturer = models.CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class ClinicInventoryItem(BaseModel):
+    """A clinic's stock of a given medicine, tracked per batch."""
+
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="inventory_items")
+    medicine = models.ForeignKey(
+        Medicine, on_delete=models.CASCADE, related_name="inventory_items"
+    )
+    batch_number = models.CharField(max_length=64, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
+    quantity_in_stock = models.PositiveIntegerField(default=0)
+    reorder_threshold = models.PositiveIntegerField(default=0)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["clinic", "medicine", "expiry_date"])]
+
+    def __str__(self):
+        return f"ClinicInventoryItem<{self.clinic_id}:{self.medicine_id}>"
+
+    @property
+    def is_low_stock(self) -> bool:
+        return self.quantity_in_stock < self.reorder_threshold
+
+
+class PurchaseOrderStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    ORDERED = "ordered", "Ordered"
+    RECEIVED = "received", "Received"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class PurchaseOrder(BaseModel):
+    """
+    A clinic's order to a supplier for restocking medicines.
+
+    `items` holds the line items as a JSON list ({medicine_id, quantity,
+    unit_price}) rather than a separate line-item table — there's no
+    per-item receiving workflow yet, so a dedicated table would have no
+    reader beyond this record.
+    """
+
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="purchase_orders")
+    supplier_name = models.CharField(max_length=255, blank=True)
+    # DjangoJSONEncoder so Decimal unit_price values in each line item don't
+    # blow up psycopg's json dump (stdlib json.dumps can't serialize Decimal).
+    items = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
+    status = models.CharField(
+        max_length=16, choices=PurchaseOrderStatus.choices, default=PurchaseOrderStatus.DRAFT
+    )
+    ordered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    ordered_at = models.DateTimeField(null=True, blank=True)
+    received_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"PurchaseOrder<{self.clinic_id}:{self.status}>"
+
+
+class StaffTaskType(models.TextChoices):
+    UPLOAD_REPORTS = "upload_reports", "Upload Reports"
+    EDIT_PRESCRIPTION = "edit_prescription", "Edit Prescription"
+    VIEW_HISTORY = "view_history", "View History"
+    UPLOAD_IMAGES = "upload_images", "Upload Images"
+    VOICE_NOTES = "voice_notes", "Voice Notes"
+    OCR = "ocr", "OCR"
+    OTHER = "other", "Other"
+
+
+class StaffTaskGrantStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    REVOKED = "revoked", "Revoked"
+    EXPIRED = "expired", "Expired"
+
+
+class StaffTaskGrant(BaseModel):
+    """
+    A doctor delegating a specific task to a staff member — internal
+    delegation within a clinic, distinct from `patients.ConsentGrant` (which
+    is the patient granting access to their data).
+    """
+
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="task_grants")
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_grants_given"
+    )
+    grantee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_grants_received"
+    )
+    patient = models.ForeignKey(
+        "patients.PatientProfile",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="task_grants",
+    )
+    task_type = models.CharField(max_length=32, choices=StaffTaskType.choices)
+    status = models.CharField(
+        max_length=16, choices=StaffTaskGrantStatus.choices, default=StaffTaskGrantStatus.ACTIVE
+    )
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"StaffTaskGrant<{self.grantee_id}:{self.task_type}>"

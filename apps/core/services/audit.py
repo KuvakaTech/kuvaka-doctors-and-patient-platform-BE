@@ -46,7 +46,7 @@ def log_auth_event(
         AuditLog.objects.create(
             user=user,
             event=event,
-            email=(email or (user.email if user else "")).lower(),
+            email=(email or (user.email if user and user.email else "")).lower(),
             ip_address=_get_client_ip(request),
             user_agent=request.META.get("HTTP_USER_AGENT", "")[:512],
             metadata=metadata or {},

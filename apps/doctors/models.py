@@ -17,6 +17,9 @@ class DoctorProfile(BaseModel):
     )
     specialties = models.JSONField(default=list, blank=True)
     registration_number = models.CharField(max_length=64, blank=True)
+    preferred_medicines = models.ManyToManyField(
+        "clinics.Medicine", blank=True, related_name="preferred_by_doctors"
+    )
 
     def __str__(self):
         return f"DoctorProfile<{self.user_id}>"

@@ -1,7 +1,14 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from apps.patients.models import PatientProfile
+from apps.clinics.models import Clinic
+from apps.clinics.serializers import ClinicSerializer
+from apps.patients.models import (
+    ConsentGrant,
+    FamilyMember,
+    PatientClinicRegistration,
+    PatientProfile,
+)
 from apps.users.models import User, UserType
 from apps.users.password_history import record_password_change
 
@@ -9,8 +16,151 @@ from apps.users.password_history import record_password_change
 class PatientProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = PatientProfile
-        fields = ("external_id", "date_of_birth", "emergency_contact_number")
-        read_only_fields = ("external_id",)
+        fields = (
+            "external_id",
+            "date_of_birth",
+            "emergency_contact_number",
+            "is_provisional",
+        )
+        read_only_fields = ("external_id", "is_provisional")
+
+
+class PatientBriefSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(source="user.full_name", read_only=True)
+    phone_number = serializers.CharField(source="user.phone_number", read_only=True)
+
+    class Meta:
+        model = PatientProfile
+        fields = ("external_id", "full_name", "phone_number", "date_of_birth")
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Clinic registration
+# ---------------------------------------------------------------------------
+
+
+class PatientClinicRegistrationSerializer(serializers.ModelSerializer):
+    patient = serializers.SlugRelatedField(
+        slug_field="external_id", queryset=PatientProfile.objects.filter(deleted=False)
+    )
+    patient_detail = PatientBriefSerializer(source="patient", read_only=True)
+    clinic = serializers.SlugRelatedField(
+        slug_field="external_id", queryset=Clinic.objects.filter(deleted=False)
+    )
+    clinic_detail = ClinicSerializer(source="clinic", read_only=True)
+
+    class Meta:
+        model = PatientClinicRegistration
+        fields = ("external_id", "patient", "patient_detail", "clinic", "clinic_detail", "mrn")
+        read_only_fields = ("external_id", "patient_detail", "clinic_detail")
+
+
+# ---------------------------------------------------------------------------
+# Provisional (staff-created) patient accounts
+# ---------------------------------------------------------------------------
+
+
+class ProvisionalPatientCreateSerializer(serializers.Serializer):
+    """
+    Staff-side creation of a patient account for someone who can't
+    self-register (not literate enough to use the app, no device, etc).
+    `phone_number` is the dedupe key — an existing account with the same
+    number is reused instead of creating a duplicate.
+    """
+
+    phone_number = serializers.CharField(max_length=15)
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    clinic = serializers.SlugRelatedField(
+        slug_field="external_id",
+        queryset=Clinic.objects.filter(deleted=False),
+        required=False,
+        allow_null=True,
+    )
+    mrn = serializers.CharField(max_length=32, required=False, allow_blank=True)
+
+
+class ProvisionalPatientClaimSerializer(serializers.Serializer):
+    """A patient claiming a staff-created account: prove you hold the PIN, then set a real password."""
+
+    phone_number = serializers.CharField(max_length=15)
+    pin = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+
+
+# ---------------------------------------------------------------------------
+# Family members
+# ---------------------------------------------------------------------------
+
+
+class FamilyMemberSerializer(serializers.ModelSerializer):
+    related_patient_detail = PatientBriefSerializer(source="related_patient", read_only=True)
+
+    class Meta:
+        model = FamilyMember
+        fields = (
+            "external_id",
+            "related_patient",
+            "related_patient_detail",
+            "relationship",
+            "status",
+        )
+        read_only_fields = ("external_id", "related_patient_detail", "status")
+
+
+class FamilyMemberCreateSerializer(serializers.Serializer):
+    related_patient_phone_number = serializers.CharField(max_length=15)
+    relationship = serializers.ChoiceField(choices=FamilyMember._meta.get_field("relationship").choices)
+
+
+# ---------------------------------------------------------------------------
+# Consent grants
+# ---------------------------------------------------------------------------
+
+
+class ConsentGrantSerializer(serializers.ModelSerializer):
+    patient = serializers.SlugRelatedField(
+        slug_field="external_id",
+        queryset=PatientProfile.objects.filter(deleted=False),
+        required=False,
+    )
+    patient_detail = PatientBriefSerializer(source="patient", read_only=True)
+    grantee_clinic = serializers.SlugRelatedField(
+        slug_field="external_id",
+        queryset=Clinic.objects.filter(deleted=False),
+        required=False,
+        allow_null=True,
+    )
+    grantee_user = serializers.SlugRelatedField(
+        slug_field="external_id",
+        queryset=User.objects.filter(deleted=False),
+        required=False,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = ConsentGrant
+        fields = (
+            "external_id",
+            "patient",
+            "patient_detail",
+            "grantee_clinic",
+            "grantee_user",
+            "scope",
+            "reason",
+            "status",
+            "granted_at",
+            "expires_at",
+            "revoked_at",
+        )
+        read_only_fields = (
+            "external_id",
+            "patient_detail",
+            "status",
+            "granted_at",
+            "revoked_at",
+        )
 
 
 class PatientRegisterSerializer(serializers.Serializer):

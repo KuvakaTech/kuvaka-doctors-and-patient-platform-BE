@@ -1,3 +1,7 @@
+import time
+
+from django.conf import settings
+from django.db import connection
 from rest_framework import status
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -21,12 +25,68 @@ class IsStaffUser(BasePermission):
 
 
 class HealthCheckView(APIView):
-    """Unauthenticated liveness probe for load balancers/orchestrators."""
+    """
+    Public health check endpoint — no auth required.
+    Checks DB connectivity and reports status of each service so anyone
+    (PMs, ops, on-call) can verify the platform is up at a glance.
+    """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
-        return Response({"status": "ok"})
+        checks = {}
+        overall = "ok"
+
+        # --- Database ---
+        t0 = time.monotonic()
+        try:
+            connection.ensure_connection()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            checks["database"] = {
+                "status": "ok",
+                "latency_ms": round((time.monotonic() - t0) * 1000, 1),
+            }
+        except Exception as exc:
+            checks["database"] = {"status": "error", "detail": str(exc)}
+            overall = "degraded"
+
+        # --- Cache / Redis (optional — only checked if CACHES is configured) ---
+        try:
+            from django.core.cache import cache
+
+            t0 = time.monotonic()
+            cache.set("healthcheck_probe", "1", timeout=5)
+            val = cache.get("healthcheck_probe")
+            if val == "1":
+                checks["cache"] = {
+                    "status": "ok",
+                    "latency_ms": round((time.monotonic() - t0) * 1000, 1),
+                }
+            else:
+                checks["cache"] = {"status": "error", "detail": "probe value mismatch"}
+                overall = "degraded"
+        except Exception as exc:
+            # Redis not available in all envs — warn but don't fail overall
+            checks["cache"] = {"status": "unavailable", "detail": str(exc)}
+
+        # --- Email (Brevo) — config check only, no actual send ---
+        brevo_configured = bool(getattr(settings, "BREVO_API_KEY", ""))
+        checks["email"] = {
+            "status": "ok" if brevo_configured else "unconfigured",
+            "provider": "Brevo",
+        }
+
+        http_status = status.HTTP_200_OK if overall == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return Response(
+            {
+                "status": overall,
+                "checks": checks,
+                "version": getattr(settings, "APP_VERSION", "0.1.0"),
+            },
+            status=http_status,
+        )
 
 
 # ---------------------------------------------------------------------------

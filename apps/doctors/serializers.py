@@ -1,16 +1,34 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from apps.clinics.models import Medicine
+from apps.clinics.serializers import MedicineSerializer
 from apps.doctors.models import DoctorProfile
 from apps.users.models import User, UserType
 from apps.users.password_history import record_password_change
 
 
 class DoctorProfileSerializer(serializers.ModelSerializer):
+    preferred_medicines = serializers.SlugRelatedField(
+        slug_field="external_id",
+        queryset=Medicine.objects.filter(deleted=False),
+        many=True,
+        required=False,
+    )
+    preferred_medicines_detail = MedicineSerializer(
+        source="preferred_medicines", many=True, read_only=True
+    )
+
     class Meta:
         model = DoctorProfile
-        fields = ("external_id", "specialties", "registration_number")
-        read_only_fields = ("external_id",)
+        fields = (
+            "external_id",
+            "specialties",
+            "registration_number",
+            "preferred_medicines",
+            "preferred_medicines_detail",
+        )
+        read_only_fields = ("external_id", "preferred_medicines_detail")
 
 
 class DoctorRegisterSerializer(serializers.Serializer):
