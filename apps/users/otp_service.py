@@ -35,7 +35,10 @@ def _render_otp_email(*, name: str, code: str, purpose: str, expires_at) -> str:
     expiry = f"{expires_at:%H:%M} UTC"
 
     # Digits spaced out so they're readable at a glance even on mobile.
-    spaced_code = " &nbsp; ".join(list(code))
+    # Joined with a bare &nbsp; (no literal space chars) and rendered inside
+    # a white-space:nowrap span below — literal spaces are break opportunities,
+    # which was wrapping the code onto multiple lines on narrow screens.
+    spaced_code = "&nbsp;".join(list(code))
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -67,7 +70,7 @@ def _render_otp_email(*, name: str, code: str, purpose: str, expires_at) -> str:
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center" style="background-color:#f0f5ff;border:1px solid #c7d9ff;border-radius:6px;padding:20px;">
-                    <span style="font-size:32px;font-weight:700;letter-spacing:6px;color:#0f6fff;font-family:'Courier New',Courier,monospace;">{spaced_code}</span>
+                    <span style="display:inline-block;white-space:nowrap;font-size:28px;font-weight:700;letter-spacing:4px;color:#0f6fff;font-family:'Courier New',Courier,monospace;">{spaced_code}</span>
                   </td>
                 </tr>
               </table>
