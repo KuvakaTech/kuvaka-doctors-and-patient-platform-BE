@@ -34,6 +34,22 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ("external_id", "preferred_medicines_detail")
 
 
+class DoctorMeSerializer(DoctorProfileSerializer):
+    """DoctorProfileSerializer plus the identity fields that live on User, for the single-object 'my profile' endpoint."""
+
+    full_name = serializers.CharField(source="user.full_name", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    phone_number = serializers.CharField(source="user.phone_number", read_only=True)
+
+    class Meta(DoctorProfileSerializer.Meta):
+        fields = DoctorProfileSerializer.Meta.fields + ("full_name", "email", "phone_number")
+        read_only_fields = DoctorProfileSerializer.Meta.read_only_fields + (
+            "full_name",
+            "email",
+            "phone_number",
+        )
+
+
 class DoctorRegisterSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)

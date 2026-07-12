@@ -8,6 +8,7 @@ from apps.clinics.views import (
     ClinicStaffListCreateView,
     ClinicViewSet,
     DashboardSummaryView,
+    MedicineDetailView,
     MedicineListCreateView,
     PurchaseOrderListCreateView,
     PurchaseOrderReceiveView,
@@ -21,6 +22,9 @@ router.register("", ClinicViewSet, basename="clinic")
 urlpatterns = [
     path("dashboard/", DashboardSummaryView.as_view(), name="dashboard-summary"),
     path("medicines/", MedicineListCreateView.as_view(), name="medicine-list-create"),
+    path(
+        "medicines/<uuid:external_id>/", MedicineDetailView.as_view(), name="medicine-detail"
+    ),
     path(
         "<uuid:clinic_external_id>/staff/",
         ClinicStaffListCreateView.as_view(),

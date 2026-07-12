@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -9,6 +10,7 @@ from apps.doctors.models import DoctorProfile
 from apps.doctors.serializers import (
     ChangePasswordSerializer,
     DoctorLoginSerializer,
+    DoctorMeSerializer,
     DoctorProfileSerializer,
     DoctorRegisterSerializer,
     MFAVerifySerializer,
@@ -46,9 +48,20 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
     queryset = DoctorProfile.objects.filter(deleted=False)
     serializer_class = DoctorProfileSerializer
     http_method_names = ["get", "patch", "head", "options"]
+    lookup_field = "external_id"
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
+
+
+class DoctorMeView(APIView):
+    """GET-only, token-only: the authenticated doctor's own profile as a single object (not a paginated list)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = get_object_or_404(DoctorProfile, user=request.user, deleted=False)
+        return Response(DoctorMeSerializer(profile).data)
 
 
 class DoctorRegisterView(APIView):

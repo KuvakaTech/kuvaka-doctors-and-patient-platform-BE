@@ -1,10 +1,14 @@
 from django.urls import path
 
 from apps.clinical.views import (
+    AllergyDetailView,
     AllergyListCreateView,
     DoctorMedicineDetailView,
     DoctorMedicineListCreateView,
+    MedicationDetailView,
+    MedicationListCreateView,
     PatientChartView,
+    ProblemDetailView,
     ProblemListCreateView,
     VisitDetailView,
     VisitListCreateView,
@@ -21,9 +25,29 @@ urlpatterns = [
         name="allergy-list-create",
     ),
     path(
+        f"{_patient_prefix}/allergies/<uuid:external_id>/",
+        AllergyDetailView.as_view(),
+        name="allergy-detail",
+    ),
+    path(
         f"{_patient_prefix}/problems/",
         ProblemListCreateView.as_view(),
         name="problem-list-create",
+    ),
+    path(
+        f"{_patient_prefix}/problems/<uuid:external_id>/",
+        ProblemDetailView.as_view(),
+        name="problem-detail",
+    ),
+    path(
+        f"{_patient_prefix}/medications/",
+        MedicationListCreateView.as_view(),
+        name="medication-list-create",
+    ),
+    path(
+        f"{_patient_prefix}/medications/<uuid:external_id>/",
+        MedicationDetailView.as_view(),
+        name="medication-detail",
     ),
     path(f"{_patient_prefix}/visits/", VisitListCreateView.as_view(), name="visit-list-create"),
     path(

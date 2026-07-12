@@ -60,6 +60,39 @@ class ClinicViewSet(viewsets.ModelViewSet):
             staff_memberships__user=self.request.user, staff_memberships__is_active=True
         ).distinct()
 
+    def list(self, request, *args, **kwargs):
+        """Paginated clinic list, plus a `summary` block totalling across every clinic returned."""
+        response = super().list(request, *args, **kwargs)
+
+        from django.db.models import Sum
+
+        from apps.clinical.models import Visit
+        from apps.patients.models import PatientClinicRegistration, PatientClinicStatus
+
+        clinic_ids = self.get_queryset().values_list("id", flat=True)
+        registrations = PatientClinicRegistration.objects.filter(
+            clinic_id__in=clinic_ids, deleted=False
+        )
+        total_revenue = Visit.objects.filter(clinic_id__in=clinic_ids, deleted=False).aggregate(
+            total=Sum("amount_paid")
+        )["total"]
+
+        response.data = {
+            "summary": {
+                "total_clinics": len(set(clinic_ids)),
+                "total_patients": registrations.values("patient_id").distinct().count(),
+                "unstable_patient_count": registrations.filter(
+                    status__in=[PatientClinicStatus.CRITICAL, PatientClinicStatus.MONITORING]
+                )
+                .values("patient_id")
+                .distinct()
+                .count(),
+                "total_revenue": total_revenue or 0,
+            },
+            **response.data,
+        }
+        return response
+
     def perform_create(self, serializer):
         if self.request.user.user_type == UserType.PATIENT:
             raise PermissionDenied("Patient accounts cannot register a clinic.")
@@ -296,6 +329,29 @@ class MedicineListCreateView(generics.ListCreateAPIView):
         return qs
 
 
+class MedicineDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Edit/remove a global catalog entry. Since `Medicine` isn't clinic-scoped
+    there's no membership to check — restricted to non-patient (staff-side)
+    accounts, matching the assumption everywhere else that only clinic staff
+    touch this catalog.
+    """
+
+    queryset = Medicine.objects.filter(deleted=False)
+    serializer_class = MedicineSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = "external_id"
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.user.user_type == UserType.PATIENT:
+            self.permission_denied(request, message="Only staff accounts can edit the medicine catalog.")
+
+    def perform_destroy(self, instance):
+        instance.deleted = True
+        instance.save(update_fields=["deleted"])
+
+
 class ClinicInventoryListCreateView(generics.ListCreateAPIView):
     serializer_class = ClinicInventoryItemSerializer
     permission_classes = [IsAuthenticated]
@@ -317,7 +373,7 @@ class ClinicInventoryListCreateView(generics.ListCreateAPIView):
         serializer.save(clinic=clinic)
 
 
-class ClinicInventoryDetailView(generics.RetrieveUpdateAPIView):
+class ClinicInventoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ClinicInventoryItemSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "external_id"
@@ -326,6 +382,10 @@ class ClinicInventoryDetailView(generics.RetrieveUpdateAPIView):
         clinic = _get_clinic(self.kwargs["clinic_external_id"])
         require_permission(self.request.user, clinic, PermissionFlag.MANAGE_INVENTORY)
         return ClinicInventoryItem.objects.filter(clinic=clinic, deleted=False)
+
+    def perform_destroy(self, instance):
+        instance.deleted = True
+        instance.save(update_fields=["deleted"])
 
 
 class PurchaseOrderListCreateView(generics.ListCreateAPIView):

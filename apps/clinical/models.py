@@ -92,6 +92,9 @@ class Visit(BaseModel):
     recommendation = models.TextField(blank=True)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payment_mode = models.CharField(max_length=16, choices=PaymentMode.choices, blank=True)
+    # Not shown in the current consultation form UI — captured for follow-up
+    # scheduling: PatientChartView surfaces this as `next_appointment`.
+    next_visit_date = models.DateField(null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["patient", "visit_date"])]
@@ -205,9 +208,22 @@ class DoctorMedicine(BaseModel):
 
 
 class Prescription(BaseModel):
-    """One prescribed medicine line item under a visit."""
+    """
+    One prescribed medicine — either a line item under a visit (`visit`
+    set), or a standalone chart entry recorded outside any visit (`visit`
+    null — e.g. a medication the patient was already on before joining this
+    clinic). `patient`/`clinic` are always set directly, regardless of
+    which case this is, so "what is this patient currently taking" is one
+    simple query instead of two different paths.
+    """
 
-    visit = models.ForeignKey(Visit, on_delete=models.CASCADE, related_name="prescriptions")
+    visit = models.ForeignKey(
+        Visit, on_delete=models.CASCADE, null=True, blank=True, related_name="prescriptions"
+    )
+    patient = models.ForeignKey(
+        "patients.PatientProfile", on_delete=models.CASCADE, related_name="prescriptions"
+    )
+    clinic = models.ForeignKey("clinics.Clinic", on_delete=models.CASCADE, related_name="+")
     # Reference to the formulary entry it was prescribed from, if any — kept
     # nullable/SET_NULL since the formulary entry may later be edited or
     # deleted, but the prescription's own snapshot fields below must remain
@@ -224,6 +240,13 @@ class Prescription(BaseModel):
     frequency = models.CharField(max_length=100)
     duration = models.CharField(max_length=50)
     notes = models.TextField(blank=True)
+    prescribed_date = models.DateField(default=timezone.localdate)
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        indexes = [models.Index(fields=["patient", "clinic", "prescribed_date"])]
 
     def __str__(self):
-        return f"Prescription<visit={self.visit_id}:{self.medicine_name}>"
+        return f"Prescription<patient={self.patient_id}:{self.medicine_name}>"

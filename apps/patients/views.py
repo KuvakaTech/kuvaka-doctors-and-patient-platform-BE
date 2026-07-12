@@ -61,6 +61,7 @@ class PatientProfileViewSet(viewsets.ModelViewSet):
     queryset = PatientProfile.objects.filter(deleted=False)
     serializer_class = PatientProfileSerializer
     http_method_names = ["get", "patch", "head", "options"]
+    lookup_field = "external_id"
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
@@ -376,6 +377,11 @@ class PatientClinicRegistrationListCreateView(generics.ListCreateAPIView):
     Staff registering a patient at their clinic (patients can register at any
     number of clinics), or a patient listing which clinics they're
     registered at.
+
+    For staff (?clinic=<id> required), also supports ?status=<stable|
+    monitoring|critical|discharged|scheduled> to filter the roster, and the
+    list response includes a `summary` block (total_patients, critical_count,
+    total_revenue for that clinic) alongside the usual pagination keys.
     """
 
     serializer_class = PatientClinicRegistrationSerializer
@@ -392,7 +398,39 @@ class PatientClinicRegistrationListCreateView(generics.ListCreateAPIView):
             raise ValidationError({"clinic": "Required for staff — pass ?clinic=<external_id>."})
         clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
         require_membership(user, clinic)
-        return PatientClinicRegistration.objects.filter(clinic=clinic, deleted=False)
+        qs = PatientClinicRegistration.objects.filter(clinic=clinic, deleted=False)
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        clinic_id = request.query_params.get("clinic")
+        if clinic_id and request.user.user_type != UserType.PATIENT:
+            from django.db.models import Sum
+
+            from apps.clinical.models import Visit
+            from apps.patients.models import PatientClinicStatus
+
+            clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
+            all_registrations = PatientClinicRegistration.objects.filter(
+                clinic=clinic, deleted=False
+            )
+            total_revenue = Visit.objects.filter(clinic=clinic, deleted=False).aggregate(
+                total=Sum("amount_paid")
+            )["total"]
+            response.data = {
+                "summary": {
+                    "total_patients": all_registrations.count(),
+                    "critical_count": all_registrations.filter(
+                        status=PatientClinicStatus.CRITICAL
+                    ).count(),
+                    "total_revenue": total_revenue or 0,
+                },
+                **response.data,
+            }
+        return response
 
     def perform_create(self, serializer):
         _require_staff_user(self.request.user)

@@ -85,8 +85,10 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "frequency",
             "duration",
             "notes",
+            "prescribed_date",
         )
         read_only_fields = ("external_id",)
+        extra_kwargs = {"prescribed_date": {"required": False}}
 
 
 class VisitSerializer(serializers.ModelSerializer):
@@ -99,12 +101,14 @@ class VisitSerializer(serializers.ModelSerializer):
     vitals = VitalsSerializer(required=False)
     prescriptions = PrescriptionSerializer(many=True, required=False)
     doctor_detail = serializers.SerializerMethodField()
+    patient_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = Visit
         fields = (
             "external_id",
             "doctor_detail",
+            "patient_detail",
             "visit_type",
             "visit_date",
             "chief_complaint",
@@ -112,16 +116,27 @@ class VisitSerializer(serializers.ModelSerializer):
             "recommendation",
             "amount_paid",
             "payment_mode",
+            "next_visit_date",
             "vitals",
             "prescriptions",
             "created_date",
         )
-        read_only_fields = ("external_id", "doctor_detail", "created_date")
+        read_only_fields = ("external_id", "doctor_detail", "patient_detail", "created_date")
 
     def get_doctor_detail(self, obj):
         return {
             "external_id": str(obj.doctor.external_id),
             "full_name": obj.doctor.full_name,
+        }
+
+    def get_patient_detail(self, obj):
+        registration = obj.patient.clinic_registrations.filter(
+            clinic=obj.clinic, deleted=False
+        ).first()
+        return {
+            "external_id": str(obj.patient.external_id),
+            "full_name": obj.patient.user.full_name,
+            "mrn": registration.mrn if registration else "",
         }
 
     def create(self, validated_data):
@@ -133,9 +148,40 @@ class VisitSerializer(serializers.ModelSerializer):
         if vitals_data:
             Vitals.objects.create(visit=visit, **vitals_data)
         for line in prescriptions_data:
-            Prescription.objects.create(visit=visit, **line)
+            line.setdefault("prescribed_date", visit.visit_date)
+            Prescription.objects.create(
+                visit=visit,
+                patient=visit.patient,
+                clinic=visit.clinic,
+                added_by=visit.doctor,
+                **line,
+            )
 
         return visit
+
+
+class VisitUpdateSerializer(serializers.ModelSerializer):
+    """
+    PATCH-only, top-level fields — vitals and prescriptions are edited
+    through their own dedicated endpoints (VisitVitalsUpdateView,
+    MedicationDetailView), not here, since DRF's ModelSerializer can't
+    nested-update writable related fields without custom per-field logic.
+    """
+
+    class Meta:
+        model = Visit
+        fields = (
+            "external_id",
+            "visit_type",
+            "visit_date",
+            "chief_complaint",
+            "diagnosis",
+            "recommendation",
+            "amount_paid",
+            "payment_mode",
+            "next_visit_date",
+        )
+        read_only_fields = ("external_id",)
 
 
 class VisitSummarySerializer(serializers.ModelSerializer):

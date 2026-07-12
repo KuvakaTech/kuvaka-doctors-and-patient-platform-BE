@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from apps.doctors.views import (
     DoctorChangePasswordView,
     DoctorLoginView,
+    DoctorMeView,
     DoctorProfileViewSet,
     DoctorRegisterView,
     DoctorVerifyEmailView,
@@ -19,6 +20,7 @@ router = DefaultRouter()
 router.register("profiles", DoctorProfileViewSet, basename="doctor-profile")
 
 urlpatterns = [
+    path("me/", DoctorMeView.as_view(), name="doctor-me"),
     path("auth/register/", DoctorRegisterView.as_view(), name="doctor-register"),
     path("auth/verify-email/", DoctorVerifyEmailView.as_view(), name="doctor-verify-email"),
     path("auth/login/", DoctorLoginView.as_view(), name="doctor-login"),
