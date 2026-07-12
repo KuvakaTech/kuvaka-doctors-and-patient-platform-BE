@@ -530,6 +530,13 @@ class ProvisionalPatientCreateView(APIView):
                 "Share this PIN with the patient — they use it with their phone number to "
                 "claim the account and set their own password."
             )
+        else:
+            response["warning"] = (
+                f"This phone number is already registered to an existing patient "
+                f"({profile.user.full_name or profile.user.phone_number}). That existing "
+                "record was reused instead of creating a new one — no new account was "
+                "created. If this was a different person, check the phone number."
+            )
         if registration is not None:
             response["clinic_registration"] = PatientClinicRegistrationSerializer(
                 registration
