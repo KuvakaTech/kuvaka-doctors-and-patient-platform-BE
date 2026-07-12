@@ -311,15 +311,34 @@ class StaffTaskGrantRevokeView(APIView):
 # ---------------------------------------------------------------------------
 
 
-class MedicineListCreateView(generics.ListCreateAPIView):
-    """Global medicine catalog — shared across every clinic, not clinic-scoped."""
+def _is_staff_at_owner_clinics(user, owner_id) -> bool:
+    """Is `user` an active staff member at any clinic owned by `owner_id`?"""
+    return ClinicStaffMembership.objects.filter(
+        user=user, is_active=True, clinic__owner_id=owner_id, clinic__deleted=False
+    ).exists()
 
-    queryset = Medicine.objects.filter(deleted=False)
+
+class MedicineListCreateView(generics.ListCreateAPIView):
+    """
+    A doctor's own medicine catalog — scoped to the doctor who owns the
+    clinic (`?clinic=<external_id>` required), and shared across every
+    clinic that same doctor owns. Not visible to other doctors' clinics.
+    """
+
     serializer_class = MedicineSerializer
     permission_classes = [IsAuthenticated]
 
+    def _get_clinic(self):
+        clinic_id = self.request.query_params.get("clinic") or self.request.data.get("clinic")
+        if not clinic_id:
+            raise ValidationError({"clinic": "Required — pass ?clinic=<external_id> (or in the body for POST)."})
+        clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
+        require_membership(self.request.user, clinic)
+        return clinic
+
     def get_queryset(self):
-        qs = super().get_queryset()
+        clinic = self._get_clinic()
+        qs = Medicine.objects.filter(deleted=False, owner_id=clinic.owner_id)
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(
@@ -328,13 +347,16 @@ class MedicineListCreateView(generics.ListCreateAPIView):
             )
         return qs
 
+    def perform_create(self, serializer):
+        clinic = self._get_clinic()
+        serializer.save(owner_id=clinic.owner_id)
+
 
 class MedicineDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    Edit/remove a global catalog entry. Since `Medicine` isn't clinic-scoped
-    there's no membership to check — restricted to non-patient (staff-side)
-    accounts, matching the assumption everywhere else that only clinic staff
-    touch this catalog.
+    View/edit/remove one entry in a doctor's medicine catalog. Restricted
+    to staff at a clinic owned by the same doctor who owns the entry —
+    other doctors' clinics can't see or touch it.
     """
 
     queryset = Medicine.objects.filter(deleted=False)
@@ -342,10 +364,12 @@ class MedicineDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     lookup_field = "external_id"
 
-    def check_permissions(self, request):
-        super().check_permissions(request)
-        if request.method not in ("GET", "HEAD", "OPTIONS") and request.user.user_type == UserType.PATIENT:
-            self.permission_denied(request, message="Only staff accounts can edit the medicine catalog.")
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        if request.user.user_type == UserType.PATIENT or not _is_staff_at_owner_clinics(
+            request.user, obj.owner_id
+        ):
+            self.permission_denied(request, message="You don't have access to this clinic's medicine catalog.")
 
     def perform_destroy(self, instance):
         instance.deleted = True
@@ -353,11 +377,23 @@ class MedicineDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class ClinicInventoryListCreateView(generics.ListCreateAPIView):
+    """
+    A clinic's own stock. Also doubles as the "search medicine to
+    prescribe" lookup for the visit/prescription flow — pass
+    ?search=<text> to match against the medicine's name or generic name,
+    scoped to this clinic's own stock only.
+    """
+
     serializer_class = ClinicInventoryItemSerializer
     permission_classes = [IsAuthenticated]
 
     def get_clinic(self):
         return _get_clinic(self.kwargs["clinic_external_id"])
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["clinic"] = self.get_clinic()
+        return context
 
     def get_queryset(self):
         clinic = self.get_clinic()
@@ -365,6 +401,12 @@ class ClinicInventoryListCreateView(generics.ListCreateAPIView):
         qs = ClinicInventoryItem.objects.filter(clinic=clinic, deleted=False)
         if self.request.query_params.get("low_stock") == "true":
             qs = qs.filter(quantity_in_stock__lt=django_models.F("reorder_threshold"))
+        search = self.request.query_params.get("search")
+        if search:
+            qs = qs.filter(
+                django_models.Q(medicine__name__icontains=search)
+                | django_models.Q(medicine__generic_name__icontains=search)
+            )
         return qs
 
     def perform_create(self, serializer):
@@ -377,6 +419,11 @@ class ClinicInventoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ClinicInventoryItemSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "external_id"
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["clinic"] = _get_clinic(self.kwargs["clinic_external_id"])
+        return context
 
     def get_queryset(self):
         clinic = _get_clinic(self.kwargs["clinic_external_id"])

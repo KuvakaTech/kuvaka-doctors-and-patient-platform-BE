@@ -20,6 +20,14 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
         source="preferred_medicines", many=True, read_only=True
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            self.fields["preferred_medicines"].child_relation.queryset = Medicine.objects.filter(
+                deleted=False, owner_id=request.user.id
+            )
+
     class Meta:
         model = DoctorProfile
         fields = (

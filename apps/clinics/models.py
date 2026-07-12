@@ -123,8 +123,19 @@ class ClinicStaffMembership(BaseModel):
 
 
 class Medicine(BaseModel):
-    """Global medicine catalog, shared across clinics."""
+    """
+    A doctor's own medicine catalog. Scoped to the doctor who owns the
+    clinic it was added from (`owner`) and shared across every clinic that
+    same doctor owns — not visible to other doctors' clinics.
+    """
 
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="owned_medicines",
+        null=True,
+        blank=True,
+    )
     name = models.CharField(max_length=255, db_index=True)
     generic_name = models.CharField(max_length=255, blank=True)
     dosage_form = models.CharField(max_length=50, blank=True)

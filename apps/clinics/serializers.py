@@ -157,6 +157,14 @@ class ClinicInventoryItemSerializer(serializers.ModelSerializer):
     medicine_detail = MedicineSerializer(source="medicine", read_only=True)
     is_low_stock = serializers.BooleanField(read_only=True)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        clinic = self.context.get("clinic")
+        if clinic is not None:
+            self.fields["medicine"].queryset = Medicine.objects.filter(
+                deleted=False, owner_id=clinic.owner_id
+            )
+
     class Meta:
         model = ClinicInventoryItem
         fields = (
