@@ -320,25 +320,31 @@ def _is_staff_at_owner_clinics(user, owner_id) -> bool:
 
 class MedicineListCreateView(generics.ListCreateAPIView):
     """
-    A doctor's own medicine catalog — scoped to the doctor who owns the
-    clinic (`?clinic=<external_id>` required), and shared across every
-    clinic that same doctor owns. Not visible to other doctors' clinics.
+    A doctor's own medicine catalog — shared across every clinic that
+    doctor owns, not visible to other doctors' clinics.
+
+    A doctor account can call this with no params at all (owner is just
+    `request.user`). Staff accounts (nurse/receptionist/etc.) don't have
+    their own catalog, so they must pass `?clinic=<external_id>` to work
+    within the catalog of the doctor who owns that clinic.
     """
 
     serializer_class = MedicineSerializer
     permission_classes = [IsAuthenticated]
 
-    def _get_clinic(self):
+    def _get_owner_id(self):
+        if self.request.user.user_type == UserType.DOCTOR:
+            return self.request.user.id
         clinic_id = self.request.query_params.get("clinic") or self.request.data.get("clinic")
         if not clinic_id:
-            raise ValidationError({"clinic": "Required — pass ?clinic=<external_id> (or in the body for POST)."})
+            raise ValidationError({"clinic": "Required for non-doctor accounts — pass ?clinic=<external_id> (or in the body for POST)."})
         clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
         require_membership(self.request.user, clinic)
-        return clinic
+        return clinic.owner_id
 
     def get_queryset(self):
-        clinic = self._get_clinic()
-        qs = Medicine.objects.filter(deleted=False, owner_id=clinic.owner_id)
+        owner_id = self._get_owner_id()
+        qs = Medicine.objects.filter(deleted=False, owner_id=owner_id)
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(
@@ -348,8 +354,8 @@ class MedicineListCreateView(generics.ListCreateAPIView):
         return qs
 
     def perform_create(self, serializer):
-        clinic = self._get_clinic()
-        serializer.save(owner_id=clinic.owner_id)
+        owner_id = self._get_owner_id()
+        serializer.save(owner_id=owner_id)
 
 
 class MedicineDetailView(generics.RetrieveUpdateDestroyAPIView):
