@@ -14,7 +14,7 @@ drf-spectacular = "*"
 psycopg = {extras = ["binary"], version = "*"}
 gunicorn = "*"
 httpx = "*"
-pyotp = ">=2.9,<3"
+pyotp = ">=2.10.0,<3"
 PyJWT = ">=2.8,<3"
 
 [dev-packages]
