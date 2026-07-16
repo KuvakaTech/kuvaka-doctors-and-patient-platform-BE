@@ -62,9 +62,7 @@ def validate_flag_for_role(flag: str, role: str) -> None:
         return
     allowed_roles = PERMISSION_ROLE_MAP.get(flag, set())
     if role not in allowed_roles:
-        raise ValidationError(
-            f"The '{flag}' permission cannot be granted to role '{role}'."
-        )
+        raise ValidationError(f"The '{flag}' permission cannot be granted to role '{role}'.")
 
 
 def _has_active_task_grant(user, clinic, flag: str, patient) -> bool:

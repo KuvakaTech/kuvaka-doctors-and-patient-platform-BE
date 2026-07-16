@@ -21,7 +21,5 @@ def require_patient_access(user, clinic, patient, scope_item: str = ConsentScope
     """Require the caller to be staff at `clinic` AND hold consent covering `scope_item`."""
     membership = require_membership(user, clinic)
     if not has_consent(patient, user, scope_item):
-        raise PermissionDenied(
-            "No active consent grant covers this patient for your clinic."
-        )
+        raise PermissionDenied("No active consent grant covers this patient for your clinic.")
     return membership
