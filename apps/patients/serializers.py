@@ -116,7 +116,7 @@ class ProvisionalPatientCreateSerializer(serializers.Serializer):
 
 
 class ProvisionalPatientClaimSerializer(serializers.Serializer):
-    """A patient claiming a staff-created account: prove you hold the PIN, then set a real password."""
+    """A patient claiming a staff-created account: prove you hold the PIN, set a real password."""
 
     phone_number = serializers.CharField(max_length=15)
     pin = serializers.CharField(write_only=True)
@@ -145,7 +145,9 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
 
 class FamilyMemberCreateSerializer(serializers.Serializer):
     related_patient_phone_number = serializers.CharField(max_length=15)
-    relationship = serializers.ChoiceField(choices=FamilyMember._meta.get_field("relationship").choices)
+    relationship = serializers.ChoiceField(
+        choices=FamilyMember._meta.get_field("relationship").choices
+    )
 
 
 # ---------------------------------------------------------------------------

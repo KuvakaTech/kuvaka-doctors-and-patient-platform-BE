@@ -28,7 +28,11 @@ class Allergy(BaseModel):
     reaction = models.CharField(max_length=255, blank=True)
     severity = models.CharField(max_length=16, choices=Severity.choices, blank=True)
     noted_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
     )
 
     def __str__(self):
@@ -42,7 +46,7 @@ class ProblemStatus(models.TextChoices):
 
 
 class Problem(BaseModel):
-    """A diagnosis/problem on a patient's ongoing chart (distinct from a single visit's diagnosis text)."""
+    """A diagnosis/problem on a patient's chart (distinct from a single visit's diagnosis)."""
 
     patient = models.ForeignKey(
         "patients.PatientProfile", on_delete=models.CASCADE, related_name="problems"
@@ -56,7 +60,11 @@ class Problem(BaseModel):
     )
     notes = models.TextField(blank=True)
     noted_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
     )
 
     def __str__(self):
@@ -116,7 +124,9 @@ class Vitals(BaseModel):
     heart_rate = models.PositiveSmallIntegerField(null=True, blank=True)
     spo2 = models.PositiveSmallIntegerField(null=True, blank=True)
     respiratory_rate = models.PositiveSmallIntegerField(null=True, blank=True)
-    temperature_celsius = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    temperature_celsius = models.DecimalField(
+        max_digits=4, decimal_places=1, null=True, blank=True
+    )
     weight_kg = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     height_cm = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
     blood_sugar = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
@@ -239,7 +249,11 @@ class Prescription(BaseModel):
     notes = models.TextField(blank=True)
     prescribed_date = models.DateField(default=timezone.localdate)
     added_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
     )
 
     class Meta:

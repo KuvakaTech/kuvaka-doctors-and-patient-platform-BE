@@ -79,7 +79,9 @@ class HealthCheckView(APIView):
             "provider": "Brevo",
         }
 
-        http_status = status.HTTP_200_OK if overall == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
+        http_status = (
+            status.HTTP_200_OK if overall == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
 
         return Response(
             {

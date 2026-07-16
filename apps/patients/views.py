@@ -441,7 +441,7 @@ class PatientClinicRegistrationListCreateView(generics.ListCreateAPIView):
 
 
 class PatientClinicRegistrationDetailView(generics.RetrieveUpdateAPIView):
-    """Update a patient's status (stable/monitoring/critical/discharged/scheduled) at this clinic, or their MRN."""
+    """Update a patient's status (stable/monitoring/critical/discharged/scheduled) or MRN."""
 
     serializer_class = PatientClinicRegistrationSerializer
     permission_classes = [IsAuthenticated]

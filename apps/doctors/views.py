@@ -55,7 +55,7 @@ class DoctorProfileViewSet(viewsets.ModelViewSet):
 
 
 class DoctorMeView(APIView):
-    """GET-only, token-only: the authenticated doctor's own profile as a single object (not a paginated list)."""
+    """GET-only, token-only: the authenticated doctor's own profile as a single object."""
 
     permission_classes = [IsAuthenticated]
 

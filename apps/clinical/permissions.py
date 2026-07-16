@@ -18,7 +18,7 @@ from apps.patients.permissions import has_consent
 
 
 def require_patient_access(user, clinic, patient, scope_item: str = ConsentScope.FULL):
-    """Require the caller to be staff at `clinic` AND hold consent covering `scope_item` for `patient`."""
+    """Require the caller to be staff at `clinic` AND hold consent covering `scope_item`."""
     membership = require_membership(user, clinic)
     if not has_consent(patient, user, scope_item):
         raise PermissionDenied(

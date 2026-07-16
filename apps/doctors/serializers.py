@@ -43,7 +43,7 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
 
 
 class DoctorMeSerializer(DoctorProfileSerializer):
-    """DoctorProfileSerializer plus the identity fields that live on User, for the single-object 'my profile' endpoint."""
+    """DoctorProfileSerializer plus the identity fields on User, for the 'my profile' endpoint."""
 
     full_name = serializers.CharField(source="user.full_name", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)

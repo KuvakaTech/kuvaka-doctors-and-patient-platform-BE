@@ -1,6 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics, status
+from rest_framework import generics
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -44,7 +44,7 @@ def _get_patient(external_id) -> PatientProfile:
 
 
 def _require_clinical_writer(user, clinic):
-    """Allergy/Problem entries are doctor/clinic_admin-authored chart data — not delegable (yet)."""
+    """Allergy/Problem entries are doctor/clinic_admin-authored chart data, not delegable (yet)."""
     membership = require_membership(user, clinic)
     if membership.role not in ADMIN_ROLES:
         raise PermissionDenied("Only a doctor or clinic admin can record this.")
@@ -277,13 +277,16 @@ class VisitDetailView(_ClinicPatientScopedView, generics.RetrieveUpdateAPIView):
     lookup_url_kwarg = "visit_external_id"
 
     def get_serializer_class(self):
-        return VisitUpdateSerializer if self.request.method in ("PUT", "PATCH") else VisitSerializer
+        if self.request.method in ("PUT", "PATCH"):
+            return VisitUpdateSerializer
+        return VisitSerializer
 
     def get_queryset(self):
         clinic = self.get_clinic()
         patient = self.get_patient()
         require_patient_access(self.request.user, clinic, patient, ConsentScope.FULL)
-        if self.request.method in ("PUT", "PATCH") and self.request.user.user_type != UserType.DOCTOR:
+        is_edit = self.request.method in ("PUT", "PATCH")
+        if is_edit and self.request.user.user_type != UserType.DOCTOR:
             raise PermissionDenied("Only a doctor can edit a consultation record.")
         return Visit.objects.filter(patient=patient, clinic=clinic, deleted=False)
 

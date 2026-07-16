@@ -366,7 +366,10 @@ class MedicineListCreateView(generics.ListCreateAPIView):
         if not clinic_id:
             raise ValidationError(
                 {
-                    "clinic": "Required for non-doctor accounts — pass ?clinic=<external_id> (or in the body for POST)."
+                    "clinic": (
+                        "Required for non-doctor accounts — pass ?clinic=<external_id> "
+                        "(or in the body for POST)."
+                    )
                 }
             )
         clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)

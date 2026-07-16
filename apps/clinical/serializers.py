@@ -185,7 +185,7 @@ class VisitUpdateSerializer(serializers.ModelSerializer):
 
 
 class VisitSummarySerializer(serializers.ModelSerializer):
-    """Lightweight shape for the visit-history list on the patient chart — no nested vitals/prescriptions."""
+    """Lightweight shape for the visit-history list — no nested vitals/prescriptions."""
 
     class Meta:
         model = Visit

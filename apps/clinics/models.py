@@ -51,7 +51,11 @@ PERMISSION_ROLE_MAP: dict[str, set[str]] = {
     PermissionFlag.VIEW_REVENUE: set(),
     PermissionFlag.EDIT_PRESCRIPTIONS: {UserType.PHARMACIST},
     PermissionFlag.ADD_VITALS: {UserType.NURSE},
-    PermissionFlag.UPLOAD_REPORTS: {UserType.NURSE, UserType.RECEPTIONIST, UserType.LAB_TECHNICIAN},
+    PermissionFlag.UPLOAD_REPORTS: {
+        UserType.NURSE,
+        UserType.RECEPTIONIST,
+        UserType.LAB_TECHNICIAN,
+    },
     PermissionFlag.UPLOAD_IMAGES: {UserType.NURSE, UserType.LAB_TECHNICIAN},
     PermissionFlag.VIEW_PATIENT_HISTORY: {UserType.NURSE},
     PermissionFlag.VOICE_NOTES: {UserType.NURSE},
@@ -98,7 +102,7 @@ class Clinic(BaseModel):
     pincode = models.CharField(max_length=10, blank=True)
     phone_number = models.CharField(max_length=15, blank=True)
     email = models.EmailField(blank=True)
-    hours = models.CharField(max_length=255, blank=True)  # free text, e.g. "Mon-Fri 8:00 AM - 5:00 PM"
+    hours = models.CharField(max_length=255, blank=True)  # free text, e.g. "Mon-Fri 8-5"
     notes = models.TextField(blank=True)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
