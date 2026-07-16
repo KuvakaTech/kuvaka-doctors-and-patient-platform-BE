@@ -85,6 +85,24 @@ def _has_active_task_grant(user, clinic, flag: str, patient) -> bool:
     return qs.exists()
 
 
+def has_permission(user, clinic, flag: str, *, patient=None) -> bool:
+    """
+    Non-raising variant of require_permission — for conditionally
+    including/omitting data (e.g. revenue figures gated on VIEW_REVENUE,
+    see the four call sites in apps.clinics.views/apps.patients.views)
+    rather than blocking an entire request over one field. Returns False
+    for a non-member instead of raising, unlike require_membership.
+    """
+    membership = get_membership(user, clinic)
+    if membership is None:
+        return False
+    if membership.role in ADMIN_ROLES:
+        return True
+    if flag in membership.permissions:
+        return True
+    return _has_active_task_grant(user, clinic, flag, patient)
+
+
 def require_permission(user, clinic, flag: str, *, patient=None) -> ClinicStaffMembership:
     """
     Require the caller to hold `flag` at `clinic` — via admin-default role,
@@ -92,11 +110,7 @@ def require_permission(user, clinic, flag: str, *, patient=None) -> ClinicStaffM
     an active task grant delegated to them for that patient.
     """
     membership = require_membership(user, clinic)
-    if membership.role in ADMIN_ROLES:
-        return membership
-    if flag in membership.permissions:
-        return membership
-    if _has_active_task_grant(user, clinic, flag, patient):
+    if has_permission(user, clinic, flag, patient=patient):
         return membership
     raise PermissionDenied("You do not have permission to perform this action.")
 

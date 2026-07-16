@@ -8,8 +8,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.clinics.models import Clinic
-from apps.clinics.permissions import ADMIN_ROLES, require_membership
+from apps.clinics.models import Clinic, PermissionFlag
+from apps.clinics.permissions import ADMIN_ROLES, has_permission, require_membership
 from apps.core.services.audit import AuthEvent, log_auth_event
 from apps.core.services.lockout import clear_failed_attempts, record_failed_attempt
 from apps.patients.models import (
@@ -408,28 +408,26 @@ class PatientClinicRegistrationListCreateView(generics.ListCreateAPIView):
         response = super().list(request, *args, **kwargs)
         clinic_id = request.query_params.get("clinic")
         if clinic_id and request.user.user_type != UserType.PATIENT:
-            from django.db.models import Sum
-
-            from apps.clinical.models import Visit
             from apps.patients.models import PatientClinicStatus
 
             clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
             all_registrations = PatientClinicRegistration.objects.filter(
                 clinic=clinic, deleted=False
             )
-            total_revenue = Visit.objects.filter(clinic=clinic, deleted=False).aggregate(
-                total=Sum("amount_paid")
-            )["total"]
-            response.data = {
-                "summary": {
-                    "total_patients": all_registrations.count(),
-                    "critical_count": all_registrations.filter(
-                        status=PatientClinicStatus.CRITICAL
-                    ).count(),
-                    "total_revenue": total_revenue or 0,
-                },
-                **response.data,
+            summary = {
+                "total_patients": all_registrations.count(),
+                "critical_count": all_registrations.filter(
+                    status=PatientClinicStatus.CRITICAL
+                ).count(),
             }
+            # VIEW_REVENUE gating — see the matching note on
+            # apps.clinics.views.ClinicViewSet.list(); key omitted, not a
+            # 403, for staff without it.
+            if has_permission(request.user, clinic, PermissionFlag.VIEW_REVENUE):
+                from apps.finance.services import clinic_total_revenue
+
+                summary["total_revenue"] = clinic_total_revenue([clinic.pk])
+            response.data = {"summary": summary, **response.data}
         return response
 
     def perform_create(self, serializer):
@@ -566,7 +564,10 @@ class ProvisionalPatientClaimView(APIView):
                 request,
                 AuthEvent.LOGIN_FAILED,
                 email="",
-                metadata={"reason": "invalid_provisional_claim", "phone_number": data["phone_number"]},
+                metadata={
+                    "reason": "invalid_provisional_claim",
+                    "phone_number": data["phone_number"],
+                },
             )
             return Response(
                 {"detail": "Invalid phone number or PIN."}, status=status.HTTP_400_BAD_REQUEST
@@ -574,7 +575,12 @@ class ProvisionalPatientClaimView(APIView):
 
         validate_new_password(data["new_password"], user, field_name="new_password")
         user.set_password(data["new_password"])
-        user.save(update_fields=["password"])
+        # A claimed account must be able to log back in normally later (this
+        # response hands back tokens directly, bypassing the login view's
+        # own email_verified gate) — without this, the patient is locked out
+        # the moment their token expires.
+        user.email_verified = True
+        user.save(update_fields=["password", "email_verified"])
         record_password_change(user)
 
         profile = user.patient_profile
@@ -595,7 +601,11 @@ class FamilyMemberListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        return FamilyMemberCreateSerializer if self.request.method == "POST" else FamilyMemberSerializer
+        return (
+            FamilyMemberCreateSerializer
+            if self.request.method == "POST"
+            else FamilyMemberSerializer
+        )
 
     def get_queryset(self):
         profile = _require_patient_profile(self.request.user)

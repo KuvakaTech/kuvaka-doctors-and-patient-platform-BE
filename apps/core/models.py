@@ -146,3 +146,89 @@ class EmergencyAccess(models.Model):
     @property
     def is_reviewed(self) -> bool:
         return self.reviewed_at is not None
+
+
+class FinancialEvent(models.TextChoices):
+    """
+    Every state-changing action in apps.finance/apps.billing. Deliberately
+    one shared vocabulary rather than one enum per app — a single audit
+    query across both money apps (e.g. "everything that touched invoice X's
+    money") shouldn't need to union two tables with different event shapes.
+    """
+
+    # finance
+    ENTRY_CREATED = "entry_created", "Revenue entry created"
+    ENTRY_UPDATED = "entry_updated", "Revenue entry updated"
+    ENTRY_SETTLED = "entry_settled", "Revenue entry settled"
+    ENTRY_CANCELLED = "entry_cancelled", "Revenue entry cancelled"
+    SHARE_RULE_CREATED = "share_rule_created", "Revenue share rule created"
+    SHARE_RULE_UPDATED = "share_rule_updated", "Revenue share rule updated"
+    GRANT_CREATED = "grant_created", "Finance access grant created"
+    GRANT_REVOKED = "grant_revoked", "Finance access grant revoked"
+    # billing
+    CHARGE_CAPTURED = "charge_captured", "Charge item captured"
+    CHARGE_CANCELLED = "charge_cancelled", "Charge item cancelled"
+    INVOICE_ISSUED = "invoice_issued", "Invoice issued"
+    INVOICE_CANCELLED = "invoice_cancelled", "Invoice cancelled"
+    PAYMENT_POSTED = "payment_posted", "Payment posted"
+    REFUND_POSTED = "refund_posted", "Refund posted"
+    ADVANCE_POSTED = "advance_posted", "Advance posted"
+    ADVANCE_APPLIED = "advance_applied", "Advance applied to invoice"
+    PRICE_DEFINITION_CHANGED = "price_definition_changed", "Price book definition changed"
+
+
+class FinancialAuditLog(models.Model):
+    """
+    Immutable record of every money-mutating action across apps.finance and
+    apps.billing. The money counterpart of AuditLog (auth events) — kept as
+    a separate model/table rather than folded into AuditLog because the
+    two audiences (auth security review vs financial review) query it
+    differently, and mixing FinancialEvent into AuthEvent would make
+    AuditLog's `event` choices span two unrelated domains.
+
+    Records are intentionally never updated or soft-deleted — append-only,
+    same convention as AuditLog. Do not inherit BaseModel (adds `deleted`
+    and `modified_date`, neither of which make sense here).
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    # actor may be null only for system-initiated writes (e.g. a scheduled
+    # backfill/migration) — every user-initiated action always has one.
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="financial_audit_logs",
+    )
+    event = models.CharField(max_length=40, choices=FinancialEvent.choices, db_index=True)
+    clinic = models.ForeignKey(
+        "clinics.Clinic",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    # The mutated object — external_id, never the internal PK, matching the
+    # platform-wide rule that internal ids are never persisted/exposed
+    # outside their own app.
+    object_type = models.CharField(max_length=40)  # e.g. "revenue_entry", "invoice"
+    object_id = models.CharField(max_length=64)  # the object's external_id
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # Before/after amounts, reasons, etc. NEVER credentials, and never
+    # patient names or clinical content — identifiers only.
+    metadata = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["object_type", "object_id"]),
+            models.Index(fields=["clinic", "event", "created_at"]),
+            models.Index(fields=["actor", "created_at"]),
+        ]
+
+    def __str__(self):
+        when = self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        return f"{self.event} | {self.object_type}:{self.object_id} | {when}"

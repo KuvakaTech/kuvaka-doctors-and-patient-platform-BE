@@ -21,7 +21,14 @@ if READ_DOT_ENV_FILE := env.bool("DJANGO_READ_DOT_ENV_FILE", default=False):
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env.bool("DJANGO_DEBUG", False)
 ALLOWED_HOSTS = env.json("DJANGO_ALLOWED_HOSTS", default=["*"])
-TIME_ZONE = env("DJANGO_TIME_ZONE", default="UTC")
+# Single-country (India) platform today. Money-dated data — invoice fiscal
+# years, reconciliation day-books, revenue-entry `occurred_on` — is keyed on
+# apps.core.money's local-date helpers, which resolve against this setting.
+# Left at UTC, a payment at 04:00 IST would land on the wrong day (and, on
+# April 1st, the wrong fiscal year) since DB storage is always UTC
+# regardless (USE_TZ=True) — TIME_ZONE only controls what `timezone.localtime()`/
+# `localdate()` convert *to*.
+TIME_ZONE = env("DJANGO_TIME_ZONE", default="Asia/Kolkata")
 LANGUAGE_CODE = "en-us"
 SITE_ID = 1
 USE_I18N = True
@@ -46,9 +53,17 @@ CACHES = {
 
 # APPS
 # ------------------------------------------------------------------------------
-# Domain apps are kept modular: `doctors` and `patients` own their respective
-# journeys end-to-end (models, serializers, viewsets), while `core` and `users`
-# hold cross-cutting concerns shared by both (base models, auth, permissions).
+# Domain apps are kept modular, each owning one bounded area (models,
+# serializers, viewsets): `users` owns auth; `clinics` owns clinic/staff/
+# inventory; `doctors`/`patients` own their respective auth+profile only;
+# `clinical` owns the clinical record (visits, vitals, prescriptions);
+# `billing` owns patient-facing charge capture/invoicing; `finance` owns
+# doctor-facing revenue attribution (see docs/HLD.md §4 and
+# docs/finance-billing-design.md §3.3 for the billing<->finance layering
+# rule). `core` holds cross-cutting concerns shared by all of the above
+# (base models, audit logging, money vocabulary).
+# LOCAL_APPS order reflects dependency order — later apps may reference
+# models from earlier ones (never the reverse).
 DJANGO_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -72,6 +87,8 @@ LOCAL_APPS = [
     "apps.doctors",
     "apps.patients",
     "apps.clinical",
+    "apps.billing",
+    "apps.finance",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 

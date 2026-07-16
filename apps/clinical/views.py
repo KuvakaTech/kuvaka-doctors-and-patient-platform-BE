@@ -255,7 +255,14 @@ class VisitListCreateView(_ClinicPatientScopedView, generics.ListCreateAPIView):
         require_patient_access(self.request.user, clinic, patient, ConsentScope.FULL)
         if self.request.user.user_type != UserType.DOCTOR:
             raise PermissionDenied("Only a doctor can record a consultation.")
-        serializer.save(patient=patient, clinic=clinic, doctor=self.request.user)
+        visit = serializer.save(patient=patient, clinic=clinic, doctor=self.request.user)
+        # Local import — apps.billing depends on apps.clinical, so
+        # importing it back at module load time here would be circular.
+        # This is the only visit-side capture path — the finance-only pre-cutover path
+        # (record_visit_revenue) was retired once billing became universal.
+        from apps.billing.services import capture_visit_charges
+
+        capture_visit_charges(visit, request=self.request)
 
 
 class VisitDetailView(_ClinicPatientScopedView, generics.RetrieveUpdateAPIView):
@@ -279,6 +286,12 @@ class VisitDetailView(_ClinicPatientScopedView, generics.RetrieveUpdateAPIView):
         if self.request.method in ("PUT", "PATCH") and self.request.user.user_type != UserType.DOCTOR:
             raise PermissionDenied("Only a doctor can edit a consultation record.")
         return Visit.objects.filter(patient=patient, clinic=clinic, deleted=False)
+
+    def perform_update(self, serializer):
+        visit = serializer.save()
+        from apps.billing.services import capture_visit_charges
+
+        capture_visit_charges(visit, request=self.request)
 
 
 class VisitVitalsUpdateView(_ClinicPatientScopedView, APIView):

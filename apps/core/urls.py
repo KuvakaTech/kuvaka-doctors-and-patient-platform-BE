@@ -4,6 +4,7 @@ from apps.core.views import (
     BreakGlassListView,
     BreakGlassReviewView,
     BreakGlassView,
+    FinancialAuditLogListView,
     HealthCheckView,
 )
 
@@ -17,4 +18,6 @@ urlpatterns = [
         BreakGlassReviewView.as_view(),
         name="break-glass-review",
     ),
+    # Financial audit review
+    path("financial-audit/", FinancialAuditLogListView.as_view(), name="financial-audit-list"),
 ]

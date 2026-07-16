@@ -22,6 +22,7 @@ from apps.clinics.models import (
 )
 from apps.clinics.permissions import (
     get_membership,
+    has_permission,
     require_admin,
     require_membership,
     require_permission,
@@ -64,33 +65,40 @@ class ClinicViewSet(viewsets.ModelViewSet):
         """Paginated clinic list, plus a `summary` block totalling across every clinic returned."""
         response = super().list(request, *args, **kwargs)
 
-        from django.db.models import Sum
-
-        from apps.clinical.models import Visit
         from apps.patients.models import PatientClinicRegistration, PatientClinicStatus
 
-        clinic_ids = self.get_queryset().values_list("id", flat=True)
+        clinic_ids = list(self.get_queryset().values_list("id", flat=True))
         registrations = PatientClinicRegistration.objects.filter(
             clinic_id__in=clinic_ids, deleted=False
         )
-        total_revenue = Visit.objects.filter(clinic_id__in=clinic_ids, deleted=False).aggregate(
-            total=Sum("amount_paid")
-        )["total"]
 
-        response.data = {
-            "summary": {
-                "total_clinics": len(set(clinic_ids)),
-                "total_patients": registrations.values("patient_id").distinct().count(),
-                "unstable_patient_count": registrations.filter(
-                    status__in=[PatientClinicStatus.CRITICAL, PatientClinicStatus.MONITORING]
-                )
-                .values("patient_id")
-                .distinct()
-                .count(),
-                "total_revenue": total_revenue or 0,
-            },
-            **response.data,
+        summary = {
+            "total_clinics": len(set(clinic_ids)),
+            "total_patients": registrations.values("patient_id").distinct().count(),
+            "unstable_patient_count": registrations.filter(
+                status__in=[PatientClinicStatus.CRITICAL, PatientClinicStatus.MONITORING]
+            )
+            .values("patient_id")
+            .distinct()
+            .count(),
         }
+
+        # VIEW_REVENUE gating: the key is omitted, not a
+        # 403, for staff without it — the rest of the summary is
+        # legitimately theirs. Revenue is summed only over the subset of
+        # clinics they're actually privileged at, never leaked from the
+        # others just because they happen to share this response.
+        privileged_clinic_ids = [
+            cid
+            for cid in clinic_ids
+            if has_permission(request.user, cid, PermissionFlag.VIEW_REVENUE)
+        ]
+        if privileged_clinic_ids:
+            from apps.finance.services import clinic_total_revenue
+
+            summary["total_revenue"] = clinic_total_revenue(privileged_clinic_ids)
+
+        response.data = {"summary": summary, **response.data}
         return response
 
     def perform_create(self, serializer):
@@ -102,6 +110,18 @@ class ClinicViewSet(viewsets.ModelViewSet):
             user=self.request.user,
             role=UserType.CLINIC_ADMIN,
             created_by=self.request.user,
+        )
+        # Local import — apps.finance depends on apps.clinics, so importing
+        # it back at module load time here would be circular (same pattern
+        # as the apps.clinical import elsewhere in this module).
+        from apps.finance.models import BusinessOwnership, BusinessUnit, BusinessUnitType
+
+        BusinessUnit.objects.create(
+            owner=self.request.user,
+            clinic=clinic,
+            name=clinic.name,
+            unit_type=BusinessUnitType.CLINIC,
+            ownership=BusinessOwnership.OWNED,
         )
 
     def perform_update(self, serializer):
@@ -119,14 +139,14 @@ class DashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.db.models import Sum
-
         from apps.clinical.models import Visit
         from apps.patients.models import PatientClinicRegistration, PatientClinicStatus
 
-        clinic_ids = ClinicStaffMembership.objects.filter(
-            user=request.user, is_active=True, deleted=False
-        ).values_list("clinic_id", flat=True)
+        clinic_ids = list(
+            ClinicStaffMembership.objects.filter(
+                user=request.user, is_active=True, deleted=False
+            ).values_list("clinic_id", flat=True)
+        )
 
         registrations = PatientClinicRegistration.objects.filter(
             clinic_id__in=clinic_ids, deleted=False
@@ -134,23 +154,30 @@ class DashboardSummaryView(APIView):
         now = timezone.localdate()
         visits = Visit.objects.filter(clinic_id__in=clinic_ids, deleted=False)
 
-        return Response(
-            {
-                "total_clinics": len(set(clinic_ids)),
-                "total_patients": registrations.values("patient_id").distinct().count(),
-                "needing_attention": registrations.filter(
-                    status=PatientClinicStatus.CRITICAL
-                )
-                .values("patient_id")
-                .distinct()
-                .count(),
-                "active_visits_today": visits.filter(visit_date=now).count(),
-                "monthly_revenue": visits.filter(
-                    visit_date__year=now.year, visit_date__month=now.month
-                ).aggregate(total=Sum("amount_paid"))["total"]
-                or 0,
-            }
-        )
+        data = {
+            "total_clinics": len(set(clinic_ids)),
+            "total_patients": registrations.values("patient_id").distinct().count(),
+            "needing_attention": registrations.filter(status=PatientClinicStatus.CRITICAL)
+            .values("patient_id")
+            .distinct()
+            .count(),
+            "active_visits_today": visits.filter(visit_date=now).count(),
+        }
+
+        # VIEW_REVENUE gating — see the matching note in ClinicViewSet.list().
+        privileged_clinic_ids = [
+            cid
+            for cid in clinic_ids
+            if has_permission(request.user, cid, PermissionFlag.VIEW_REVENUE)
+        ]
+        if privileged_clinic_ids:
+            from apps.finance.services import clinic_monthly_revenue
+
+            data["monthly_revenue"] = clinic_monthly_revenue(
+                privileged_clinic_ids, year=now.year, month=now.month
+            )
+
+        return Response(data)
 
 
 def _get_clinic(external_id) -> Clinic:
@@ -337,7 +364,11 @@ class MedicineListCreateView(generics.ListCreateAPIView):
             return self.request.user.id
         clinic_id = self.request.query_params.get("clinic") or self.request.data.get("clinic")
         if not clinic_id:
-            raise ValidationError({"clinic": "Required for non-doctor accounts — pass ?clinic=<external_id> (or in the body for POST)."})
+            raise ValidationError(
+                {
+                    "clinic": "Required for non-doctor accounts — pass ?clinic=<external_id> (or in the body for POST)."
+                }
+            )
         clinic = get_object_or_404(Clinic, external_id=clinic_id, deleted=False)
         require_membership(self.request.user, clinic)
         return clinic.owner_id
@@ -375,7 +406,9 @@ class MedicineDetailView(generics.RetrieveUpdateDestroyAPIView):
         if request.user.user_type == UserType.PATIENT or not _is_staff_at_owner_clinics(
             request.user, obj.owner_id
         ):
-            self.permission_denied(request, message="You don't have access to this clinic's medicine catalog.")
+            self.permission_denied(
+                request, message="You don't have access to this clinic's medicine catalog."
+            )
 
     def perform_destroy(self, instance):
         instance.deleted = True
@@ -492,4 +525,12 @@ class PurchaseOrderReceiveView(APIView):
         order.status = PurchaseOrderStatus.RECEIVED
         order.received_at = timezone.now()
         order.save(update_fields=["status", "received_at"])
+
+        # Local import — apps.clinics is a shared base app apps.finance
+        # already depends on directly (RevenueEntry.clinic, .purchase_order),
+        # but importing apps.finance back here at module load time would be
+        # circular the other way.
+        from apps.finance.services import record_purchase_expense
+
+        record_purchase_expense(order, request=request)
         return Response(PurchaseOrderSerializer(order).data)

@@ -1,16 +1,18 @@
+import zoneinfo
+
 from rest_framework import serializers
 
 from apps.clinics.models import (
+    STAFF_ROLE_CHOICES,
     Clinic,
     ClinicInventoryItem,
     ClinicStaffMembership,
     Medicine,
     PermissionFlag,
     PurchaseOrder,
-    STAFF_ROLE_CHOICES,
     StaffTaskGrant,
 )
-from apps.clinics.permissions import validate_flag_for_role
+from apps.clinics.permissions import has_permission, validate_flag_for_role
 from apps.users.models import User
 
 
@@ -38,6 +40,9 @@ class ClinicSerializer(serializers.ModelSerializer):
             "hours",
             "notes",
             "is_active",
+            "timezone",
+            "fiscal_year_start_month",
+            "invoice_prefix",
             "patient_count",
             "critical_count",
             "monitoring_count",
@@ -53,6 +58,32 @@ class ClinicSerializer(serializers.ModelSerializer):
             "active_today",
             "monthly_revenue",
         )
+
+    def validate_timezone(self, value):
+        # Global-readiness seam —
+        # every clinic is Asia/Kolkata today, but the field must reject
+        # garbage from day one rather than silently accepting an invalid
+        # IANA name that only breaks clinic_localdate() at read time.
+        if value not in zoneinfo.available_timezones():
+            raise serializers.ValidationError(f"Unknown timezone: {value!r}.")
+        return value
+
+    def validate_fiscal_year_start_month(self, value):
+        # Also DB-enforced (fiscal_year_start_month_valid CHECK constraint)
+        # — validated here too so a bad value is a clean 400, not an
+        # IntegrityError, matching the platform's existing convention (see
+        # ConsentGrant's exactly-one-grantee check).
+        if not 1 <= value <= 12:
+            raise serializers.ValidationError("Must be between 1 and 12.")
+        return value
+
+    def validate_invoice_prefix(self, value):
+        # Uppercased so "shc"/"Shc"/"SHC" can never collide as different
+        # prefixes on the same clinic's invoice numbers.
+        value = value.upper()
+        if value and not value.isalnum():
+            raise serializers.ValidationError("Must be letters/digits only.")
+        return value
 
     def get_patient_count(self, obj):
         return obj.patient_registrations.filter(deleted=False).count()
@@ -75,16 +106,31 @@ class ClinicSerializer(serializers.ModelSerializer):
         ).count()
 
     def get_monthly_revenue(self, obj):
-        from django.db.models import Sum
+        # VIEW_REVENUE gating. Short-circuits before
+        # running the aggregate query at all for a non-privileged caller;
+        # to_representation() below removes the key entirely rather than
+        # exposing this None (the design calls for omission, not null).
+        request = self.context.get("request")
+        if request is not None and not has_permission(
+            request.user, obj, PermissionFlag.VIEW_REVENUE
+        ):
+            return None
+
         from django.utils import timezone
 
-        from apps.clinical.models import Visit
+        from apps.finance.services import clinic_monthly_revenue
 
         now = timezone.localdate()
-        total = Visit.objects.filter(
-            clinic=obj, visit_date__year=now.year, visit_date__month=now.month, deleted=False
-        ).aggregate(total=Sum("amount_paid"))["total"]
-        return total or 0
+        return clinic_monthly_revenue([obj.pk], year=now.year, month=now.month)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is not None and not has_permission(
+            request.user, instance, PermissionFlag.VIEW_REVENUE
+        ):
+            data.pop("monthly_revenue", None)
+        return data
 
 
 class StaffUserSerializer(serializers.ModelSerializer):

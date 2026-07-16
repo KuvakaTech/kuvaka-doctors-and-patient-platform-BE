@@ -6,6 +6,10 @@ from django.utils import timezone
 
 from apps.core.models import BaseModel
 
+# Re-exported — PaymentMode now lives in apps.core.money, shared with
+# apps.billing/apps.finance. Kept importable from here for compatibility.
+from apps.core.money import PaymentMode  # noqa: F401
+
 
 class Severity(models.TextChoices):
     MILD = "mild", "Mild"
@@ -66,13 +70,6 @@ class VisitType(models.TextChoices):
     PROCEDURE = "procedure", "Procedure"
     WELLNESS_CHECK = "wellness_check", "Wellness Check"
     TELECONSULTATION = "teleconsultation", "Teleconsultation"
-
-
-class PaymentMode(models.TextChoices):
-    CASH = "cash", "Cash"
-    CARD = "card", "Card"
-    UPI = "upi", "UPI"
-    INSURANCE = "insurance", "Insurance"
 
 
 class Visit(BaseModel):

@@ -2,12 +2,14 @@ import time
 
 from django.conf import settings
 from django.db import connection
-from rest_framework import status
+from django.shortcuts import get_object_or_404
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.models import EmergencyAccess
+from apps.core.models import EmergencyAccess, FinancialAuditLog
+from apps.core.serializers import FinancialAuditLogSerializer
 from apps.core.services.break_glass import invoke_break_glass, review_break_glass
 from apps.users.models import User, UserType
 
@@ -235,3 +237,55 @@ class BreakGlassReviewView(APIView):
                 "reviewed_at": event.reviewed_at,
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# Financial audit review
+# ---------------------------------------------------------------------------
+
+
+class FinancialAuditLogListView(generics.ListAPIView):
+    """
+    Read-only trail over every money-mutating action in apps.finance and
+    apps.billing.
+
+    `?clinic=<external_id>` — requires a clinic admin/doctor role at that
+    clinic; returns every event scoped to it.
+    Omitted entirely -> the safe default of "your own actions only"
+    (never privileged, always allowed — matches AuditLog's own review
+    surface convention for a caller who isn't a clinic admin anywhere).
+
+    Optional filters: `?event=`, `?object_type=`, `?from=`, `?to=`
+    (on `created_at`, inclusive date bounds).
+    """
+
+    serializer_class = FinancialAuditLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = FinancialAuditLog.objects.select_related("actor", "clinic").order_by("-created_at")
+
+        clinic_external_id = self.request.query_params.get("clinic")
+        if clinic_external_id:
+            # Local import — apps.core sits below apps.clinics in
+            # LOCAL_APPS, so importing apps.clinics back at module load
+            # time here would be circular.
+            from apps.clinics.models import Clinic
+            from apps.clinics.permissions import require_admin
+
+            clinic = get_object_or_404(Clinic, external_id=clinic_external_id, deleted=False)
+            require_admin(self.request.user, clinic)
+            qs = qs.filter(clinic=clinic)
+        else:
+            qs = qs.filter(actor=self.request.user)
+
+        params = self.request.query_params
+        if params.get("event"):
+            qs = qs.filter(event=params["event"])
+        if params.get("object_type"):
+            qs = qs.filter(object_type=params["object_type"])
+        if params.get("from"):
+            qs = qs.filter(created_at__date__gte=params["from"])
+        if params.get("to"):
+            qs = qs.filter(created_at__date__lte=params["to"])
+        return qs

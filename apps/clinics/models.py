@@ -30,6 +30,12 @@ class PermissionFlag(models.TextChoices):
     VIEW_PATIENT_HISTORY = "view_patient_history", "View Patient History"
     VOICE_NOTES = "voice_notes", "Voice Notes"
     OCR = "ocr", "OCR"
+    # apps.billing — capture charges, build/issue invoices, collect payments.
+    MANAGE_BILLING = "manage_billing", "Manage Billing"
+    # apps.billing — cancel issued invoices, post refunds. Split from
+    # MANAGE_BILLING because reversing money is a higher-trust action than
+    # collecting it.
+    MANAGE_REFUNDS = "manage_refunds", "Manage Refunds"
 
 
 # Roles (beyond CLINIC_ADMIN/DOCTOR, which always bypass permission checks —
@@ -50,6 +56,22 @@ PERMISSION_ROLE_MAP: dict[str, set[str]] = {
     PermissionFlag.VIEW_PATIENT_HISTORY: {UserType.NURSE},
     PermissionFlag.VOICE_NOTES: {UserType.NURSE},
     PermissionFlag.OCR: {UserType.NURSE, UserType.RECEPTIONIST},
+    # Billing permissions are owner-decided rather than role-restricted
+    # — every staff role is
+    # *eligible*; it's ClinicStaffMembership.permissions / StaffTaskGrant
+    # that decides who actually holds one, same as every other flag here.
+    PermissionFlag.MANAGE_BILLING: {
+        UserType.NURSE,
+        UserType.RECEPTIONIST,
+        UserType.PHARMACIST,
+        UserType.LAB_TECHNICIAN,
+    },
+    PermissionFlag.MANAGE_REFUNDS: {
+        UserType.NURSE,
+        UserType.RECEPTIONIST,
+        UserType.PHARMACIST,
+        UserType.LAB_TECHNICIAN,
+    },
 }
 
 
@@ -86,6 +108,41 @@ class Clinic(BaseModel):
         related_name="owned_clinics",
     )
     is_active = models.BooleanField(default=True)
+    # --- Global-readiness seams ---
+    # The platform is India-only today, but money-critical, clinic-scoped
+    # dates (RevenueEntry.occurred_on, Invoice fiscal-year numbering,
+    # billing day-book boundaries) must be computed per-clinic, not from
+    # the process-wide TIME_ZONE setting (which stays India-default — it's
+    # only used for admin/platform-wide display of non-clinic-scoped
+    # timestamps). Stamping these two fields now, while every value is the
+    # same default, avoids an ambiguous backfill the day a non-Indian
+    # clinic actually onboards. Use apps.core.money.clinic_localdate(clinic)
+    # rather than django.utils.timezone.localdate() for any clinic-scoped
+    # business date.
+    timezone = models.CharField(max_length=64, default="Asia/Kolkata")
+    # 1-12: which calendar month this clinic's fiscal year starts in.
+    # Default 4 = April (Indian fiscal year, Apr-Mar). Drives
+    # apps.billing.Invoice's "<fiscal-year>" numbering segment.
+    fiscal_year_start_month = models.PositiveSmallIntegerField(default=4)
+    # The "<clinic-prefix>" segment of invoice numbers, e.g. "SHC"
+    # in "SHC/2026-27/000042". Blank until the clinic sets one explicitly;
+    # apps.billing derives and persists a fallback (from the clinic name)
+    # the first time an invoice is issued with none set, so a number once
+    # assigned never changes even if the clinic is later renamed.
+    invoice_prefix = models.CharField(max_length=10, blank=True)
+
+    class Meta(BaseModel.Meta):
+        # Must subclass BaseModel.Meta, not declare a bare `class Meta:` —
+        # otherwise the abstract base's `ordering = ("-created_date",)` is
+        # silently dropped rather than inherited (a real Django gotcha:
+        # abstract-model Meta options only carry over automatically when
+        # there's no Meta declared at all on the concrete subclass).
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(fiscal_year_start_month__gte=1, fiscal_year_start_month__lte=12),
+                name="fiscal_year_start_month_valid",
+            ),
+        ]
 
     def __str__(self):
         return self.name
